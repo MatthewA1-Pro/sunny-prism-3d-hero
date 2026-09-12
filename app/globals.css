@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* The background is painted by CSS before WebGL initialises, so there is never
+   a white first paint or a flash on canvas resize. */
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0F021F;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-container {
+  position: relative;
+  width: 100%;
+  background: #0F021F;
+}
+
+.scene-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 1;
+  /* pan-y lets a touch drag scroll the page straight through the canvas
+     instead of the canvas swallowing the gesture. */
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scene-wrapper canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: pan-y;
+}
+
+.scroll-space {
+  height: 300vh;
+  pointer-events: none;
+}
+
+/* ── Scroll hint ─────────────────────────────────────────────────────────── */
+
+.scroll-hint {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(180, 160, 255, 0.6);
+  /* Opacity is driven from the scroll listener; the pulse rides on top. */
+  will-change: opacity;
+  animation: hintPulse 2s ease-in-out infinite;
+}
+
+.scroll-hint-arrow {
+  width: 1px;
+  height: 2rem;
+  background: linear-gradient(to bottom, transparent, rgba(180, 160, 255, 0.6));
+  animation: arrowPulse 2s ease-in-out infinite;
+}
+
+@keyframes hintPulse {
+  0%,
+  100% {
+    filter: opacity(0.55);
+  }
+  50% {
+    filter: opacity(1);
+  }
+}
+
+@keyframes arrowPulse {
+  0% {
+    opacity: 0.3;
+    transform: scaleY(0.6) translateY(-8px);
+  }
+  100% {
+    opacity: 0.8;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  .scroll-hint {
+    bottom: 1.2rem;
+    font-size: 0.6rem;
+  }
+}
+
+/* ── WebGL fallback ──────────────────────────────────────────────────────── */
+
+.webgl-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0F021F;
+}
+
+.webgl-fallback-shape {
+  width: min(42vh, 60vw);
+  aspect-ratio: 1 / 1;
+  clip-path: polygon(50% 4%, 100% 100%, 0% 100%);
+  background: linear-gradient(
+    150deg,
+    #f2f0ff 0%,
+    #b9b4d6 28%,
+    #6f6a94 46%,
+    #d58bd0 62%,
+    #7ad4e6 78%,
+    #efe7c9 100%
+  );
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-hint,
+  .scroll-hint-arrow {
+    animation: none;
+  }
+}

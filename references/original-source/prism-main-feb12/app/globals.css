@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+.scroll-container {
+  position: relative;
+  width: 100%;
+}
+
+.scroll-space {
+  height: 200vh;
+  pointer-events: none;
+}
+
+.scene-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  z-index: 1;
+}
