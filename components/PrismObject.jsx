@@ -25,6 +25,9 @@ import {
   SETTLE_SCALE,
   baseYaw,
   basePitch,
+  PRISM_SHAPE,
+  INITIAL_YAW,
+  INITIAL_PITCH,
   easeInOutCubic,
   easeOutCubic,
   easeInOutSine,
@@ -46,8 +49,19 @@ const COLOR_BASE = new THREE.Color('#66AAFF')
 const COLOR_SECTION = new THREE.Color('#40D0FF')
 const COLOR_CUT = new THREE.Color('#FF40B0')
 
-export default function PrismObject({ controller, composition, reducedMotion }) {
-  const matcap = useTexture('/matcap.png')
+/*
+ * Matcap textures are colour maps: they must be sampled in sRGB or the chrome
+ * goes flat. Applied through useTexture's onLoad callback rather than by
+ * mutating the returned texture, and hoisted to module scope so its identity
+ * is stable and the texture is not re-uploaded on every render.
+ */
+function toSRGB(texture) {
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+}
+
+export default function PrismObject({ controllerRef, composition, reducedMotion }) {
+  const matcap = useTexture('/matcap.png', toSRGB)
 
   const groupRef = useRef(null)
   const sliceRefs = useRef([])
@@ -66,22 +80,31 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
   const cutGeo = useMemo(() => buildCutSweepGeometry(), [])
   const cutEdgeGeo = useMemo(() => buildCutSweepOutline(), [])
 
-  // Matcap textures are colour maps: keep them in sRGB or the chrome goes flat.
-  useEffect(() => {
-    matcap.colorSpace = THREE.SRGBColorSpace
-    matcap.needsUpdate = true
-  }, [matcap])
+  /*
+   * Edge lines for each slice.
+   *
+   * The buyer's `shapes.pptx` draws the pyramid as a translucent solid with its
+   * edges picked out, and that line work is what makes the form readable. It
+   * earns its place here for a second reason: a matcap face turned toward the
+   * camera samples the texture's black centre, so without edges the interior cut
+   * faces read as flat black holes once the prism opens.
+   */
+  const sliceEdges = useMemo(
+    () => slices.map((s) => new THREE.EdgesGeometry(s.geometry, 15)),
+    [slices]
+  )
 
   // Dispose everything this component generated on the GPU.
   useEffect(() => {
     return () => {
       slices.forEach((s) => s.geometry.dispose())
+      sliceEdges.forEach((e) => e.dispose())
       sectionQuad.dispose()
       sectionOutline.dispose()
       cutGeo.dispose()
       cutEdgeGeo.dispose()
     }
-  }, [slices, sectionQuad, sectionOutline, cutGeo, cutEdgeGeo])
+  }, [slices, sliceEdges, sectionQuad, sectionOutline, cutGeo, cutEdgeGeo])
 
   // ── Preallocated scratch — nothing is constructed inside useFrame ─────────
   const scratch = useMemo(
@@ -93,12 +116,13 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
     []
   )
 
-  const smoothed = useRef({ yaw: 0.38, pitch: 0.06 })
+  const smoothed = useRef({ yaw: INITIAL_YAW, pitch: INITIAL_PITCH })
 
   useFrame((state, delta) => {
     // Guard against long frames (tab restore) producing a visible jump.
     const dt = Math.min(delta, 0.05)
-    const p = controller.progress.current
+    const controller = controllerRef.current
+    const p = controller.progress
     const s = getStages(p)
     const time = state.clock.elapsedTime
 
@@ -117,9 +141,9 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
     // ── Whole-prism orientation ─────────────────────────────────────────────
     if (groupRef.current) {
       const pointerYaw =
-        controller.pointer.current.x * 0.1 * composition.pointerStrength * idle
+        controller.pointer.x * 0.04 * composition.pointerStrength * idle
       const pointerPitch =
-        controller.pointer.current.y * 0.06 * composition.pointerStrength * idle
+        controller.pointer.y * 0.025 * composition.pointerStrength * idle
 
       // Pointer influence tapers off once the technical section scan begins,
       // so the diagram-like states stay square to camera.
@@ -128,12 +152,12 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
       const targetYaw =
         baseYaw(s) +
         pointerYaw * pointerFade +
-        Math.sin(time * 0.18) * 0.035 * idle * pointerFade
+        Math.sin(time * 0.18) * 0.018 * idle * pointerFade
 
       const targetPitch =
         basePitch(s) +
         pointerPitch * pointerFade +
-        Math.sin(time * 0.24) * 0.02 * idle * pointerFade
+        Math.sin(time * 0.24) * 0.012 * idle * pointerFade
 
       smoothed.current.yaw = damp(smoothed.current.yaw, targetYaw, 4.5, dt)
       smoothed.current.pitch = damp(smoothed.current.pitch, targetPitch, 4.5, dt)
@@ -144,7 +168,11 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
       // Already full size on load — the hero never starts from nothing.
       const breathe = 1 + Math.sin(time * 0.55) * 0.008 * idle
       const scale = composition.scale * breathe
-      groupRef.current.scale.setScalar(scale)
+      groupRef.current.scale.set(
+        PRISM_SHAPE[0] * scale,
+        PRISM_SHAPE[1] * scale,
+        PRISM_SHAPE[2] * scale
+      )
       groupRef.current.position.y = composition.groupY
     }
 
@@ -169,7 +197,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
       const visible = sectionFade > 0.004
       basePlateRef.current.visible = visible
       if (visible) {
-        basePlateRef.current.material.opacity = 0.3 * sectionFade
+        basePlateRef.current.material.opacity = 0.26 * sectionFade
       }
     }
 
@@ -187,7 +215,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
       if (visible) {
         sectionRef.current.position.y = scanY
         sectionRef.current.scale.set(halfExtent, 1, halfExtent)
-        sectionRef.current.material.opacity = 0.34 * sectionFade
+        sectionRef.current.material.opacity = 0.3 * sectionFade
       }
     }
     if (sectionEdgeRef.current) {
@@ -196,7 +224,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
       if (visible) {
         sectionEdgeRef.current.position.y = scanY
         sectionEdgeRef.current.scale.set(halfExtent, 1, halfExtent)
-        sectionEdgeRef.current.material.opacity = 0.8 * sectionFade
+        sectionEdgeRef.current.material.opacity = 0.5 * sectionFade
       }
     }
 
@@ -229,8 +257,13 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
         const a = cutSweep.steps[i0]
         const b = cutSweep.steps[i1]
 
-        const pos = cutGeo.attributes.position.array
-        const edge = cutEdgeGeo.attributes.position.array
+        // Written through the mesh refs. The geometries are created in
+        // useMemo, and mutating a memoized value directly is what React's
+        // immutability rule forbids; the refs are the sanctioned mutable handle.
+        const posAttr = cutRef.current.geometry.attributes.position
+        const edgeAttr = cutEdgeRef.current.geometry.attributes.position
+        const pos = posAttr.array
+        const edge = edgeAttr.array
 
         for (let v = 0; v < CUT_SWEEP_SAMPLES; v++) {
           const x = lerp(a[v * 3], b[v * 3], mix)
@@ -248,11 +281,11 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
         edge[CUT_SWEEP_SAMPLES * 3 + 1] = edge[1]
         edge[CUT_SWEEP_SAMPLES * 3 + 2] = edge[2]
 
-        cutGeo.attributes.position.needsUpdate = true
-        cutEdgeGeo.attributes.position.needsUpdate = true
+        posAttr.needsUpdate = true
+        edgeAttr.needsUpdate = true
 
-        cutRef.current.material.opacity = 0.22 * revealFade
-        cutEdgeRef.current.material.opacity = 0.85 * revealFade
+        cutRef.current.material.opacity = 0.17 * revealFade
+        cutEdgeRef.current.material.opacity = 0.45 * revealFade
       }
     }
   })
@@ -261,21 +294,30 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
     <group ref={groupRef}>
       {/* ── Structural slices: one solid object, cut, never cross-faded ── */}
       {slices.map((slice, i) => (
-        <mesh
+        <group
           key={i}
           ref={(el) => {
             sliceRefs.current[i] = el
           }}
-          geometry={slice.geometry}
-          renderOrder={0}
         >
-          <meshMatcapMaterial
-            matcap={matcap}
-            side={THREE.FrontSide}
-            transparent={false}
-            opacity={1}
-          />
-        </mesh>
+          <mesh geometry={slice.geometry} renderOrder={0}>
+            <meshMatcapMaterial
+              matcap={matcap}
+              side={THREE.DoubleSide}
+              transparent={false}
+              opacity={1}
+            />
+          </mesh>
+          <lineSegments geometry={sliceEdges[i]} renderOrder={1}>
+            <lineBasicMaterial
+              color="#CFC8FF"
+              transparent
+              opacity={0.45}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </lineSegments>
+        </group>
       ))}
 
       {/* ── Base plate: the pyramid's ground square ── */}
@@ -293,7 +335,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
           opacity={0}
           side={THREE.DoubleSide}
           depthWrite={false}
-          depthTest={false}
+          depthTest={true}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
@@ -313,7 +355,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
           opacity={0}
           side={THREE.DoubleSide}
           depthWrite={false}
-          depthTest={false}
+          depthTest={true}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
@@ -350,7 +392,7 @@ export default function PrismObject({ controller, composition, reducedMotion }) 
           opacity={0}
           side={THREE.DoubleSide}
           depthWrite={false}
-          depthTest={false}
+          depthTest={true}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
