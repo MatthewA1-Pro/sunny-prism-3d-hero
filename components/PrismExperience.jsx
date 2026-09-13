@@ -96,7 +96,7 @@ function ResponsiveRig({ composition }) {
     if (appliedRef.current === composition) return
     appliedRef.current = composition
 
-    camera.position.set(0, 0.45, composition.cameraZ)
+    camera.position.set(0, composition.cameraY, composition.cameraZ)
     camera.fov = composition.fov
     camera.near = 0.1
     camera.far = 100
@@ -217,6 +217,8 @@ export default function PrismExperience() {
       readScroll()
     }
     const onPointerMove = (e) => {
+      // Touch and pen drags are scroll gestures, not parallax input.
+      if (e.pointerType !== 'mouse') return
       const target = controllerRef.current.pointerTarget
       target.x = (e.clientX / window.innerWidth) * 2 - 1
       target.y = -((e.clientY / window.innerHeight) * 2 - 1)
@@ -248,7 +250,7 @@ export default function PrismExperience() {
       <div className="scene-wrapper">
         {webgl === null ? null : webgl ? (
           <Canvas
-            camera={{ position: [0, 0.45, 6], fov: 40, near: 0.1, far: 100 }}
+            camera={{ position: [0, 0.1, 6], fov: 40, near: 0.1, far: 100 }}
             dpr={[1, 1.75]}
             gl={{
               antialias: true,

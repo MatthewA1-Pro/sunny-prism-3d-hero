@@ -22,7 +22,6 @@ import {
   getStages,
   sliceOffset,
   SLICE_TRANSFORMS,
-  SETTLE_SCALE,
   baseYaw,
   basePitch,
   PRISM_SHAPE,
@@ -31,7 +30,6 @@ import {
   easeInOutCubic,
   easeOutCubic,
   easeInOutSine,
-  easeOutExpo,
   lerp,
   clamp01,
   range,
@@ -41,13 +39,50 @@ import {
 /* Cross-section colours, carried over from the deployed revision so the
  * palette stays continuous with what the buyer has already approved.
  * They map onto the planes in shapes.pptx `image2.gif`:
- *   base plate   -> the green ground square
  *   rising plane -> the purple horizontal section
  *   cut sweep    -> the vertical/diagonal section
  */
-const COLOR_BASE = new THREE.Color('#66AAFF')
 const COLOR_SECTION = new THREE.Color('#40D0FF')
 const COLOR_CUT = new THREE.Color('#FF40B0')
+
+/*
+ * Section outlines trace where a plane meets the prism's surface. Inside an
+ * opaque solid the plane itself is hidden, so the outline is what the viewer
+ * sees. Pushed a hair outside the surface and depth-tested, only its visible
+ * half draws: a scan line crossing the faces, instead of an x-ray wire loop
+ * showing through the chrome.
+ */
+const RING_INFLATE = 1.012
+
+/* Seam line opacity: a faint hint on the closed hero, fully lit once the
+ * cutting plane has passed through that slice. */
+const EDGE_IDLE = 0.1
+const EDGE_LIT = 0.5
+
+const MATCAP_URL = '/matcap.png'
+const MATCAP_SOFT_URL = '/matcap-soft.png'
+
+/*
+ * Silver matcap.
+ *
+ * `matcap.png` is 58% near-black inside its disc, so a plain matcap lookup on
+ * flat faces renders much of the prism as black card whatever its orientation
+ * (55-69% of the silhouette in the previous build). The approved `demo.mp4`
+ * hero is under 1% black: soft mid-grey faces (luminance ~86-114, low
+ * saturation) carrying saturated rainbow streaks.
+ *
+ * So the buyer's matcap is layered over a blurred copy of itself
+ * (`matcap-soft.png`, built by scripts/build-matcap-soft.mjs). The blurred copy
+ * gives each normal the local average colour of the chrome — partly
+ * desaturated, so it reads as silver with a warm or cool tint rather than as
+ * the texture's green band — and the sharp matcap is screened on top for the
+ * streaks and highlights. `qa/matcap-preview.mjs` reproduces this shader
+ * offline, including ACES tone mapping: across the timeline's yaw band it
+ * measures 0% black at luminance ~90-120.
+ */
+const SOFT_GAIN = 2.4
+const SOFT_SATURATION = 0.4
+const MATCAP_DETAIL = 0.9
 
 /*
  * Matcap textures are colour maps: they must be sampled in sRGB or the chrome
@@ -60,13 +95,70 @@ function toSRGB(texture) {
   texture.needsUpdate = true
 }
 
+/** The 64px soft matcap is sampled smoothly and needs no mip chain. */
+function toSoftSRGB(texture) {
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.generateMipmaps = false
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.needsUpdate = true
+}
+
+function createPrismMaterial(matcap, matcapSoft) {
+  const material = new THREE.MeshMatcapMaterial({
+    matcap,
+    side: THREE.FrontSide,
+  })
+
+  material.onBeforeCompile = (shader) => {
+    const sample = 'vec4 matcapColor = texture2D( matcap, uv );'
+    // If a three.js upgrade changes the chunk, keep the plain matcap rather
+    // than failing to compile.
+    if (!shader.fragmentShader.includes(sample)) return
+
+    shader.uniforms.matcapSoft = { value: matcapSoft }
+    shader.uniforms.softGain = { value: SOFT_GAIN }
+    shader.uniforms.softSaturation = { value: SOFT_SATURATION }
+    shader.uniforms.matcapDetail = { value: MATCAP_DETAIL }
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D matcapSoft;
+uniform float softGain;
+uniform float softSaturation;
+uniform float matcapDetail;`
+      )
+      .replace(
+        sample,
+        `${sample}
+		vec3 softColor = texture2D( matcapSoft, uv ).rgb;
+		float softLuma = dot( softColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+		vec3 silver = min( mix( vec3( softLuma ), softColor, softSaturation ) * softGain, vec3( 1.0 ) );
+		matcapColor.rgb = 1.0 - ( 1.0 - silver ) * ( 1.0 - matcapColor.rgb * matcapDetail );`
+      )
+  }
+  material.customProgramCacheKey = () => 'prism-silver-matcap'
+
+  return material
+}
+
 export default function PrismObject({ controllerRef, composition, reducedMotion }) {
-  const matcap = useTexture('/matcap.png', toSRGB)
+  const matcap = useTexture(MATCAP_URL, toSRGB)
+  const matcapSoft = useTexture(MATCAP_SOFT_URL, toSoftSRGB)
+
+  // One material shared by every slice: one program, one set of uniforms.
+  const prismMaterial = useMemo(
+    () => createPrismMaterial(matcap, matcapSoft),
+    [matcap, matcapSoft]
+  )
+  useEffect(() => () => prismMaterial.dispose(), [prismMaterial])
 
   const groupRef = useRef(null)
   const sliceRefs = useRef([])
+  const edgeMaterialRefs = useRef([])
 
-  const basePlateRef = useRef(null)
   const sectionRef = useRef(null)
   const sectionEdgeRef = useRef(null)
   const cutRef = useRef(null)
@@ -83,11 +175,9 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   /*
    * Edge lines for each slice.
    *
-   * The buyer's `shapes.pptx` draws the pyramid as a translucent solid with its
-   * edges picked out, and that line work is what makes the form readable. It
-   * earns its place here for a second reason: a matcap face turned toward the
-   * camera samples the texture's black centre, so without edges the interior cut
-   * faces read as flat black holes once the prism opens.
+   * The buyer's `shapes.pptx` draws the pyramid as a solid with its edges
+   * picked out, and that line work is what makes the cuts readable. Each
+   * slice's edges ignite as the cutting plane passes through it.
    */
   const sliceEdges = useMemo(
     () => slices.map((s) => new THREE.EdgesGeometry(s.geometry, 15)),
@@ -107,14 +197,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   }, [slices, sliceEdges, sectionQuad, sectionOutline, cutGeo, cutEdgeGeo])
 
   // ── Preallocated scratch — nothing is constructed inside useFrame ─────────
-  const scratch = useMemo(
-    () => ({
-      offset: new THREE.Vector3(),
-      a: new THREE.Vector3(),
-      b: new THREE.Vector3(),
-    }),
-    []
-  )
+  const scratch = useMemo(() => ({ offset: new THREE.Vector3() }), [])
 
   const smoothed = useRef({ yaw: INITIAL_YAW, pitch: INITIAL_PITCH })
 
@@ -127,16 +210,14 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     const time = state.clock.elapsedTime
 
     const idle = reducedMotion ? 0 : 1
-    const explodeAmount =
-      easeInOutCubic(s.explode) * composition.explodeScale
     const settleAmount = easeInOutCubic(s.settle)
 
-    // Pieces travel out, then draw back to the settled composition.
-    const spread = lerp(
-      explodeAmount,
-      explodeAmount * SETTLE_SCALE,
-      settleAmount
-    )
+    // Pieces slide out along the cuts, hold, then glide back until the solid
+    // is whole again — the same loop as the buyer's `image10.gif`.
+    const spread =
+      easeInOutCubic(s.explode) *
+      (1 - easeInOutCubic(s.reassemble)) *
+      composition.explodeScale
 
     // ── Whole-prism orientation ─────────────────────────────────────────────
     if (groupRef.current) {
@@ -152,7 +233,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       const targetYaw =
         baseYaw(s) +
         pointerYaw * pointerFade +
-        Math.sin(time * 0.18) * 0.018 * idle * pointerFade
+        Math.sin(time * 0.18) * 0.04 * idle * pointerFade
 
       const targetPitch =
         basePitch(s) +
@@ -176,79 +257,46 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       groupRef.current.position.y = composition.groupY
     }
 
+    // ── Diagonal cutting plane ──────────────────────────────────────────────
+    // Travels through the closed solid from the right face to the far left
+    // corner, parallel to the right edge. Purely scroll-driven, so scrubbing
+    // back retraces it exactly. Its section degenerates to a point at both
+    // ends, and the fade follows that.
+    const sweepT = easeInOutCubic(s.reveal)
+    const sweepK = lerp(K_MAX - 0.02, K_MIN + 0.02, sweepT)
+    const sweepFade =
+      easeOutCubic(range(sweepT, 0, 0.12)) *
+      (1 - easeInOutSine(range(sweepT, 0.82, 1)))
+
     // ── Structural slices ───────────────────────────────────────────────────
+    const edgeDim = 1 - settleAmount * 0.4
+
     for (let i = 0; i < slices.length; i++) {
       const mesh = sliceRefs.current[i]
-      if (!mesh) continue
+      if (mesh) {
+        const t = SLICE_TRANSFORMS[i]
+        sliceOffset(i, spread, scratch.offset)
 
-      const t = SLICE_TRANSFORMS[i]
-      sliceOffset(i, spread, scratch.offset)
+        mesh.position.copy(scratch.offset)
+        mesh.rotation.z = t.tilt * spread
+        mesh.rotation.y = t.yaw * spread
+      }
 
-      mesh.position.copy(scratch.offset)
-      mesh.rotation.z = t.tilt * spread
-      mesh.rotation.y = t.yaw * spread
-    }
-
-    // ── Cross sections ──────────────────────────────────────────────────────
-    // Base plate: the ground square of the pyramid, fades in with the scan.
-    const sectionFade = easeOutCubic(s.section) * (1 - settleAmount * 0.45)
-
-    if (basePlateRef.current) {
-      const visible = sectionFade > 0.004
-      basePlateRef.current.visible = visible
-      if (visible) {
-        basePlateRef.current.material.opacity = 0.26 * sectionFade
+      // A slice's seams are fully lit once the plane has reached its lower cut.
+      const edgeMaterial = edgeMaterialRefs.current[i]
+      if (edgeMaterial) {
+        const lit = clamp01((K_MAX - sweepK) / (K_MAX - slices[i].kLow))
+        edgeMaterial.opacity =
+          lerp(EDGE_IDLE, EDGE_LIT, easeOutCubic(lit)) * edgeDim
       }
     }
-
-    // Rising horizontal section. Its half-extent is an exact function of
-    // elevation, so the plane always matches the pyramid's true cross-section.
-    const scanCycle = reducedMotion
-      ? 0.45
-      : (Math.sin(time * 0.42 - Math.PI / 2) + 1) / 2
-    const scanY = lerp(-0.98, 0.94, easeInOutSine(scanCycle))
-    const halfExtent = sectionHalfExtent(scanY)
-
-    if (sectionRef.current) {
-      const visible = sectionFade > 0.004
-      sectionRef.current.visible = visible
-      if (visible) {
-        sectionRef.current.position.y = scanY
-        sectionRef.current.scale.set(halfExtent, 1, halfExtent)
-        sectionRef.current.material.opacity = 0.3 * sectionFade
-      }
-    }
-    if (sectionEdgeRef.current) {
-      const visible = sectionFade > 0.004
-      sectionEdgeRef.current.visible = visible
-      if (visible) {
-        sectionEdgeRef.current.position.y = scanY
-        sectionEdgeRef.current.scale.set(halfExtent, 1, halfExtent)
-        sectionEdgeRef.current.material.opacity = 0.5 * sectionFade
-      }
-    }
-
-    // ── Diagonal cut sweep ──────────────────────────────────────────────────
-    // Travels through the solid while the cuts are being revealed, then holds
-    // a low presence so the seam stays legible during the explode.
-    const revealFade =
-      easeOutExpo(s.reveal) *
-      (1 - easeInOutCubic(s.settle) * 0.7) *
-      (1 - easeInOutSine(s.section) * 0.35)
 
     if (cutRef.current && cutEdgeRef.current) {
-      const visible = revealFade > 0.004
+      const visible = sweepFade > 0.004
       cutRef.current.visible = visible
       cutEdgeRef.current.visible = visible
 
       if (visible) {
-        // Sweep position: driven by scroll during reveal, then a slow idle
-        // drift so the seam never freezes dead still.
-        const sweepT = clamp01(
-          easeInOutCubic(range(p, 0.16, 0.5)) * 0.85 +
-            (reducedMotion ? 0.1 : (Math.sin(time * 0.3) + 1) / 2) * 0.15
-        )
-
         const fIndex = sweepT * (cutSweep.count - 1)
         const i0 = Math.floor(fIndex)
         const i1 = Math.min(i0 + 1, cutSweep.count - 1)
@@ -265,6 +313,9 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         const pos = posAttr.array
         const edge = edgeAttr.array
 
+        let cx = 0
+        let cy = 0
+        let cz = 0
         for (let v = 0; v < CUT_SWEEP_SAMPLES; v++) {
           const x = lerp(a[v * 3], b[v * 3], mix)
           const y = lerp(a[v * 3 + 1], b[v * 3 + 1], mix)
@@ -272,9 +323,20 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           pos[v * 3] = x
           pos[v * 3 + 1] = y
           pos[v * 3 + 2] = z
-          edge[v * 3] = x
-          edge[v * 3 + 1] = y
-          edge[v * 3 + 2] = z
+          cx += x
+          cy += y
+          cz += z
+        }
+        cx /= CUT_SWEEP_SAMPLES
+        cy /= CUT_SWEEP_SAMPLES
+        cz /= CUT_SWEEP_SAMPLES
+
+        // The section is convex, so pushing away from its centroid within
+        // the cut plane moves every outline point just outside the surface.
+        for (let v = 0; v < CUT_SWEEP_SAMPLES; v++) {
+          edge[v * 3] = cx + (pos[v * 3] - cx) * RING_INFLATE
+          edge[v * 3 + 1] = cy + (pos[v * 3 + 1] - cy) * RING_INFLATE
+          edge[v * 3 + 2] = cz + (pos[v * 3 + 2] - cz) * RING_INFLATE
         }
         // Close the outline loop.
         edge[CUT_SWEEP_SAMPLES * 3] = edge[0]
@@ -284,8 +346,38 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         posAttr.needsUpdate = true
         edgeAttr.needsUpdate = true
 
-        cutRef.current.material.opacity = 0.17 * revealFade
-        cutEdgeRef.current.material.opacity = 0.45 * revealFade
+        cutRef.current.material.opacity = 0.22 * sweepFade
+        cutEdgeRef.current.material.opacity = 0.9 * sweepFade
+      }
+    }
+
+    // ── Cross sections (shapes.pptx `image2.gif`) ───────────────────────────
+    // Run over the reassembled solid, so the section always is the pyramid's
+    // true cross-section. The horizontal plane rises from the base to the apex
+    // with scroll; its half-extent is an exact function of elevation, so it
+    // shrinks to nothing as it reaches the apex.
+    const sectionIn = easeOutCubic(range(s.section, 0, 0.18))
+    const scanT = easeInOutSine(s.section)
+    const scanY = lerp(-0.98, 0.98, scanT)
+    const halfExtent = sectionHalfExtent(scanY)
+    const planeFade = sectionIn * (1 - easeInOutSine(range(scanT, 0.86, 1)))
+
+    if (sectionRef.current && sectionEdgeRef.current) {
+      const visible = planeFade > 0.004
+      sectionRef.current.visible = visible
+      sectionEdgeRef.current.visible = visible
+      if (visible) {
+        sectionRef.current.position.y = scanY
+        sectionRef.current.scale.set(halfExtent, 1, halfExtent)
+        sectionRef.current.material.opacity = 0.3 * planeFade
+
+        sectionEdgeRef.current.position.y = scanY
+        sectionEdgeRef.current.scale.set(
+          halfExtent * RING_INFLATE,
+          1,
+          halfExtent * RING_INFLATE
+        )
+        sectionEdgeRef.current.material.opacity = 0.9 * planeFade
       }
     }
   })
@@ -300,46 +392,25 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
             sliceRefs.current[i] = el
           }}
         >
-          <mesh geometry={slice.geometry} renderOrder={0}>
-            <meshMatcapMaterial
-              matcap={matcap}
-              side={THREE.DoubleSide}
-              transparent={false}
-              opacity={1}
-            />
-          </mesh>
+          <mesh
+            geometry={slice.geometry}
+            material={prismMaterial}
+            renderOrder={0}
+          />
           <lineSegments geometry={sliceEdges[i]} renderOrder={1}>
             <lineBasicMaterial
+              ref={(el) => {
+                edgeMaterialRefs.current[i] = el
+              }}
               color="#CFC8FF"
               transparent
-              opacity={0.45}
+              opacity={EDGE_IDLE}
               depthWrite={false}
               toneMapped={false}
             />
           </lineSegments>
         </group>
       ))}
-
-      {/* ── Base plate: the pyramid's ground square ── */}
-      <mesh
-        ref={basePlateRef}
-        geometry={sectionQuad}
-        position={[0, -1, 0]}
-        renderOrder={10}
-        visible={false}
-        frustumCulled={false}
-      >
-        <meshBasicMaterial
-          color={COLOR_BASE}
-          transparent
-          opacity={0}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-          depthTest={true}
-          blending={THREE.AdditiveBlending}
-          toneMapped={false}
-        />
-      </mesh>
 
       {/* ── Rising horizontal cross-section ── */}
       <mesh
@@ -372,7 +443,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           transparent
           opacity={0}
           depthWrite={false}
-          depthTest={false}
+          depthTest={true}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
@@ -409,7 +480,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           transparent
           opacity={0}
           depthWrite={false}
-          depthTest={false}
+          depthTest={true}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
@@ -417,3 +488,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     </group>
   )
 }
+
+// Fetch both matcaps in parallel before the component first suspends on them.
+useTexture.preload(MATCAP_URL)
+useTexture.preload(MATCAP_SOFT_URL)

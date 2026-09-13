@@ -13,13 +13,16 @@
  * area-weighted luminance. Used to pick the hero angle from evidence instead of
  * by eye.
  *
- * Usage: node qa/matcap-solver.mjs [yScale]
+ * Usage: node qa/matcap-solver.mjs [yScale] [inward]
+ *   inward: sample with flipped normals (an experiment; the production shader
+ *   uses outward normals — see qa/matcap-preview.mjs for the full shader)
  */
 
 import fs from 'fs'
 import { PNG } from 'pngjs'
 
 const Y_SCALE = Number(process.argv[2] || 1.5) // height stretch vs base
+const INWARD = process.argv[3] === 'inward'
 
 const png = PNG.sync.read(fs.readFileSync('public/matcap.png'))
 const { width: MW, height: MH, data: MD } = png
@@ -89,26 +92,29 @@ function score(yaw, pitch, yScale) {
   const fs_ = faces(yScale)
   let lumSum = 0
   let satSum = 0
+  let darkSum = 0
   let wSum = 0
 
   for (const face of fs_) {
     const n = rotX(rotY(face.n, yaw), pitch)
     // Only faces turned toward the camera contribute; weight by how much of
-    // their area is presented (Lambert-style projected area).
+    // their area is presented (Lambert-style projected area). Visibility always
+    // follows the true outward normal; only the matcap lookup is flipped.
     if (n[2] <= 0.02) continue
     const w = n[2] * face.area
-    const s = sampleMatcap(n)
+    const s = sampleMatcap(INWARD ? [-n[0], -n[1], -n[2]] : n)
     lumSum += s.lum * w
     satSum += s.sat * w
+    if (s.lum <= 35) darkSum += w
     wSum += w
   }
 
   return wSum > 0
-    ? { lum: lumSum / wSum, sat: satSum / wSum, w: wSum }
-    : { lum: 0, sat: 0, w: 0 }
+    ? { lum: lumSum / wSum, sat: satSum / wSum, dark: darkSum / wSum, w: wSum }
+    : { lum: 0, sat: 0, dark: 1, w: 0 }
 }
 
-console.log(`matcap ${MW}x${MH}   yScale=${Y_SCALE}\n`)
+console.log(`matcap ${MW}x${MH}   yScale=${Y_SCALE}   normals=${INWARD ? 'inward' : 'outward'}\n`)
 
 const results = []
 for (let yawDeg = 0; yawDeg <= 90; yawDeg += 1) {
@@ -144,6 +150,7 @@ for (let y = 0; y <= 90; y += 5) {
     String(y).padStart(3) + '°',
     r.lum.toFixed(1).padStart(7),
     ' pitch ' + String(r.pitchDeg).padStart(3),
+    ' dark ' + String(Math.round(r.dark * 100)).padStart(3) + '%',
     ' ' + bar
   )
 }
