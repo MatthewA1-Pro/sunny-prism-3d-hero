@@ -36,7 +36,7 @@ const PITCH = 0.0436
 const BG = [15, 2, 31]
 
 const TILE = 200
-const YAWS = [15, 25, 35, 45, 55, 65]
+const YAWS = [25, 30, 33, 36, 40, 45]
 
 /**
  * sign   +1 outward normals, -1 inward
@@ -45,15 +45,19 @@ const YAWS = [15, 25, 35, 45, 55, 65]
  * detail weight of the sharp matcap screened over the base
  * sat    saturation kept in the soft base (1 = as blurred, 0 = neutral grey)
  */
+const deg = (d) => (d * Math.PI) / 180
+
+// Production material (components/three/PrismObject.jsx), across viewing
+// pitch: the hero angle, and candidate angles for the exploded view, which
+// demo.mp4 shows from below.
+const MATERIAL = { sign: 1, bend: 0, soft: 2.4, detail: 1.4, sat: 0.5 }
 const VARIANTS = [
-  // current production values
-  { sign: 1, bend: 0, soft: 2.4, detail: 0.9, sat: 0.4 },
-  // vividness candidates: stronger sharp matcap, more of the texture's colour
-  { sign: 1, bend: 0, soft: 2.0, detail: 1.2, sat: 0.6 },
-  { sign: 1, bend: 0, soft: 2.2, detail: 1.25, sat: 0.8 },
-  { sign: 1, bend: 0, soft: 1.8, detail: 1.5, sat: 0.9 },
-  { sign: 1, bend: 0, soft: 2.4, detail: 1.4, sat: 0.4 },
-  { sign: 1, bend: 0, soft: 2.0, detail: 1.0, sat: 1.0 },
+  { ...MATERIAL, pitch: deg(2.5) },
+  { ...MATERIAL, pitch: deg(-3) },
+  { ...MATERIAL, pitch: deg(-6) },
+  { ...MATERIAL, pitch: deg(-10) },
+  { ...MATERIAL, pitch: deg(-14) },
+  { ...MATERIAL, pitch: deg(8) },
 ]
 
 // ─── vector helpers ──────────────────────────────────────────────────────────
@@ -71,8 +75,8 @@ const rotX = (v, a) => [v[0], v[1] * Math.cos(a) - v[2] * Math.sin(a), v[1] * Ma
 const rotY = (v, a) => [v[0] * Math.cos(a) + v[2] * Math.sin(a), v[1], -v[0] * Math.sin(a) + v[2] * Math.cos(a)]
 
 // Object rotation is Euler XYZ: world = Rx(pitch) * Ry(yaw) * local.
-const toWorld = (v, yaw) => rotX(rotY(v, yaw), PITCH)
-const toLocal = (v, yaw) => rotY(rotX(v, -PITCH), -yaw)
+const toWorld = (v, yaw, pitch) => rotX(rotY(v, yaw), pitch)
+const toLocal = (v, yaw, pitch) => rotY(rotX(v, -pitch), -yaw)
 
 // ─── colour pipeline (three.js) ──────────────────────────────────────────────
 const toLin = (c) => {
@@ -170,7 +174,7 @@ function sampleBilinear(img, u, v) {
 }
 
 function renderTile(yawDeg, variant) {
-  const { sign, bend, soft: softGain, detail, sat: softSat = 1 } = variant
+  const { sign, bend, soft: softGain, detail, sat: softSat = 1, pitch = PITCH } = variant
   const yaw = (yawDeg * Math.PI) / 180
   const pix = new Uint8Array(TILE * TILE * 3)
   const tanH = Math.tan(FOV / 2)
@@ -187,8 +191,8 @@ function renderTile(yawDeg, variant) {
         -((py + 0.5) / TILE * 2 - 1) * tanH,
         -1,
       ])
-      const oL = toLocal(CAM, yaw)
-      const dL = toLocal(dirWorld, yaw)
+      const oL = toLocal(CAM, yaw, pitch)
+      const dL = toLocal(dirWorld, yaw, pitch)
       const hit = intersect(oL, dL)
       if (!hit) {
         pix[k] = BG[0]
@@ -203,10 +207,10 @@ function renderTile(yawDeg, variant) {
         const radial = nrm(sub(pL, CENTER))
         nL = nrm(add(scl(nL, 1 - bend), scl(radial, bend)))
       }
-      const normal = scl(toWorld(nL, yaw), sign)
+      const normal = scl(toWorld(nL, yaw, pitch), sign)
 
       // three.js meshmatcap_frag
-      const pW = toWorld(pL, yaw)
+      const pW = toWorld(pL, yaw, pitch)
       const viewDir = nrm(sub(CAM, pW))
       const x = nrm([viewDir[2], 0, -viewDir[0]])
       const y = cross(viewDir, x)
@@ -269,7 +273,7 @@ VARIANTS.forEach((variant, row) => {
   })
   const v = variant
   console.log(
-    `row ${row} sign ${v.sign > 0 ? '+' : '-'} bend ${v.bend} soft ${v.soft} detail ${v.detail} sat ${v.sat}  ` +
+    `row ${row} pitch ${Math.round(((v.pitch ?? PITCH) * 180) / Math.PI)}deg soft ${v.soft} detail ${v.detail} sat ${v.sat}  ` +
       cells.join('  ')
   )
 })

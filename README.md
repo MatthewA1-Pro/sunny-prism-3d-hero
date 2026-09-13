@@ -2,9 +2,10 @@
 
 The hero section of Sunny's site: the designed hero from Sunny's reference (copy,
 stats panel, grid frame and icon rail) with a scroll-driven 3D prism as its main
-visual. On scroll the prism moves to centre stage, is cut along the buyer's
-diagonal slicing system, slides apart, closes back into one solid and is scanned by
-a horizontal cross-section — then returns to its place as the hero copy comes back.
+visual. On scroll the copy clears, the prism moves to centre stage, is cut along the
+buyer's diagonal slicing system, opens into an exploded view and is scanned by a
+horizontal cross-section. The sequence only moves forward and ends exploded, as in
+`demo.mp4`.
 
 Scope is the hero only. There are deliberately no features, pricing, contact or
 other landing-page sections.
@@ -86,25 +87,31 @@ shading and perspective are identical wherever the layout places it.
 
 One normalised progress value (`0..1`) over a `300vh` track drives everything —
 prism transforms, framing and the copy fade — so reverse scrolling retraces the
-timeline exactly and DOM and WebGL cannot drift apart. It is damped with
-`THREE.MathUtils.damp` (frame-rate independent). Scrolling never triggers a React
-render.
+timeline exactly and DOM and WebGL cannot drift apart. It is damped once, with
+`THREE.MathUtils.damp` (frame-rate independent); nothing downstream smooths it a
+second time, so the prism never trails the scroll. Scrolling never triggers a React
+render, and the page always opens at the top, on the hero.
 
-| progress   | what happens                                                                 |
-|------------|------------------------------------------------------------------------------|
-| 0.00–0.06  | the designed hero at rest; prism breathes in its slot                         |
-| 0.06–0.30  | copy and stats fade; prism glides to centre stage and grows                   |
-| 0.08–0.34  | a diagonal cutting line crosses the prism; each seam lights as it passes      |
-| 0.24–0.46  | slices slide apart along the cut planes                                        |
-| 0.54–0.76  | slices close back into one solid (`image10.gif`)                               |
-| 0.62–0.92  | horizontal section rises base → apex over the whole solid (`image2.gif`)       |
-| 0.84–1.00  | prism returns to its slot, seams fade, copy returns: the page ends on the hero |
+The sequence only moves forward — no state is undone by scrolling further — and
+follows the requirement's states and `demo.mp4`:
+
+| progress   | state                 | what happens                                                         |
+|------------|-----------------------|----------------------------------------------------------------------|
+| 0.00–0.04  | 0 hero                | the designed hero at rest; prism breathes in its slot                |
+| 0.04–0.40  | 1 prism enters motion | copy and stats clear; prism glides to centre stage and turns         |
+| 0.18–0.40  | 2 slicing visible     | a diagonal cutting line crosses the prism; each seam lights up       |
+| 0.34–0.90  | 3 exploded view       | pieces separate steadily into a diagonal staircase, as in the demo   |
+| 0.60–0.92  | 4 cross-section       | a horizontal section rises base → apex through every piece           |
+| 0.86–1.00  | 5 settle              | final angle; the exploded composition holds                          |
 
 **Geometry.** The prism is built procedurally as an intersection of half-spaces and
 partitioned by three planes `2x + y = 0, -1, -2`, parallel to the triangle's right
 edge — the slicing direction in `shapes.pptx` and the annotated `prism.png`. Slice
-volumes sum exactly to the pyramid; slices only move within their cut planes, so
-pieces cannot intersect. Proportion (height 1.5x base) and hero angle (40°) follow
+volumes sum exactly to the pyramid. When the prism opens, each slice moves out along
+the cut normal in slice order (plus an in-plane slide and depth), so neighbours only
+ever move apart and cannot intersect. Each piece's cross-section is exact: slice `i`
+at height `y` keeps the rectangle `max(-h, (kLow - y)/2) ≤ x ≤ min(h, (kHigh - y)/2)`,
+`|z| ≤ h`, with `h = (1 - y)/2`. Proportion (height 1.5x base) and hero angle (40°) follow
 `demo.mp4`.
 
 **Material.** `matcap.png` is 58% near-black inside its disc, so a plain matcap

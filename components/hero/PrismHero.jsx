@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react'
 
@@ -12,6 +13,13 @@ import PrismCanvas from '@/components/three/PrismCanvas'
 import HeroContent, { HeroFrame } from './HeroContent'
 import ScrollHint from './ScrollHint'
 import { clamp01, layoutFromRects } from '@/lib/timeline'
+
+// The page always opens on the hero, as the buyer's original source did with
+// window.scrollTo(0, 0). Restoring a mid-page scroll on reload would open on a
+// half-exploded prism with the copy already gone.
+if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+  window.history.scrollRestoration = 'manual'
+}
 
 /**
  * The single mutable animation state for the whole hero.
@@ -81,6 +89,32 @@ function subscribeReducedMotion(onChange) {
 const getReducedMotion = () => getReducedMotionQuery().matches
 const assumeFullMotion = () => false
 
+/**
+ * Keeps a WebGL failure inside the canvas layer.
+ *
+ * Without it, anything thrown by the 3D scene — most likely a matcap texture
+ * that fails to download — unmounts the entire page. With it, the hero copy
+ * and layout stay, and PrismHero shows the static prism in the slot instead.
+ */
+class CanvasErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { failed: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error) {
+    this.props.onError?.(error)
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
+
 // ─── Hero ────────────────────────────────────────────────────────────────────
 
 export default function PrismHero() {
@@ -94,6 +128,10 @@ export default function PrismHero() {
     getReducedMotion,
     assumeFullMotion
   )
+
+  const [canvasFailed, setCanvasFailed] = useState(false)
+  const onCanvasError = useCallback(() => setCanvasFailed(true), [])
+  const showFallback = webgl === false || canvasFailed
 
   const controllerRef = useRef(createController())
   const trackRef = useRef({ top: 0, length: 1 })
@@ -143,6 +181,7 @@ export default function PrismHero() {
       measure()
       readScroll()
     }
+    window.scrollTo(0, 0)
     update()
 
     const onPointerMove = (e) => {
@@ -186,7 +225,7 @@ export default function PrismHero() {
 
   const slot = (
     <div className="prism-slot" ref={slotRef}>
-      {webgl === false ? (
+      {showFallback ? (
         <div className="webgl-fallback" role="img" aria-label="Prism" />
       ) : null}
     </div>
@@ -198,12 +237,14 @@ export default function PrismHero() {
         <HeroFrame />
 
         <div className="hero-webgl" aria-hidden="true">
-          {webgl === true ? (
-            <PrismCanvas
-              controllerRef={controllerRef}
-              contentRefs={contentRefs}
-              reducedMotion={reducedMotion}
-            />
+          {webgl === true && !canvasFailed ? (
+            <CanvasErrorBoundary onError={onCanvasError}>
+              <PrismCanvas
+                controllerRef={controllerRef}
+                contentRefs={contentRefs}
+                reducedMotion={reducedMotion}
+              />
+            </CanvasErrorBoundary>
           ) : null}
         </div>
 

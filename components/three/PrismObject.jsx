@@ -7,7 +7,6 @@ import * as THREE from 'three'
 
 import {
   buildSlices,
-  buildSectionQuad,
   buildSectionOutline,
   buildCutSweep,
   buildCutSweepGeometry,
@@ -21,19 +20,16 @@ import {
 import {
   getStages,
   sliceOffset,
-  SLICE_TRANSFORMS,
+  sliceTilt,
   baseYaw,
   basePitch,
   PRISM_SHAPE,
-  INITIAL_YAW,
-  INITIAL_PITCH,
   easeInOutCubic,
   easeOutCubic,
   easeInOutSine,
   lerp,
   clamp01,
   range,
-  damp,
 } from '@/lib/timeline'
 
 /* Cross-section colours, carried over from the deployed revision so the
@@ -46,19 +42,22 @@ const COLOR_SECTION = new THREE.Color('#40D0FF')
 const COLOR_CUT = new THREE.Color('#FF40B0')
 
 /*
- * Section outlines trace where a plane meets the prism's surface. Inside an
- * opaque solid the plane itself is hidden, so the outline is what the viewer
- * sees. Pushed a hair outside the surface and depth-tested, only its visible
- * half draws: a scan line crossing the faces, instead of an x-ray wire loop
- * showing through the chrome.
+ * Section outlines trace where a plane meets a surface. Inside an opaque solid
+ * the plane itself is hidden, so the outline is what the viewer sees. Pushed a
+ * hair outside the surface and depth-tested, only its visible part draws: a
+ * scan line crossing the faces, not an x-ray loop showing through the chrome.
+ *   RING_INFLATE  relative push for the diagonal cut sweep
+ *   SECTION_PAD   absolute push (local units) for the per-piece sections,
+ *                 which can be very thin rectangles
  */
 const RING_INFLATE = 1.012
+const SECTION_PAD = 0.012
 
-/* Seam line opacity: hidden on the closed hero (the page opens on a clean
- * solid), fully lit once the cutting plane has passed through that slice, and
- * hidden again once the prism settles back into the closing hero. */
+/* Seam line opacity: hidden on the closed hero, lit once the cutting plane has
+ * passed through that slice, softened a little in the settled composition. */
 const EDGE_IDLE = 0
 const EDGE_LIT = 0.5
+const EDGE_SETTLED = 0.65
 
 const MATCAP_URL = '/matcap.png'
 const MATCAP_SOFT_URL = '/matcap-soft.png'
@@ -183,15 +182,13 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   const groupRef = useRef(null)
   const sliceRefs = useRef([])
   const edgeMaterialRefs = useRef([])
+  const sectionRefs = useRef([])
 
-  const sectionRef = useRef(null)
-  const sectionEdgeRef = useRef(null)
   const cutRef = useRef(null)
   const cutEdgeRef = useRef(null)
 
   // ── Geometry (built once) ─────────────────────────────────────────────────
   const slices = useMemo(() => buildSlices(), [])
-  const sectionQuad = useMemo(() => buildSectionQuad(), [])
   const sectionOutline = useMemo(() => buildSectionOutline(), [])
   const cutSweep = useMemo(() => buildCutSweep(), [])
   const cutGeo = useMemo(() => buildCutSweepGeometry(), [])
@@ -214,21 +211,16 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     return () => {
       slices.forEach((s) => s.geometry.dispose())
       sliceEdges.forEach((e) => e.dispose())
-      sectionQuad.dispose()
       sectionOutline.dispose()
       cutGeo.dispose()
       cutEdgeGeo.dispose()
     }
-  }, [slices, sliceEdges, sectionQuad, sectionOutline, cutGeo, cutEdgeGeo])
+  }, [slices, sliceEdges, sectionOutline, cutGeo, cutEdgeGeo])
 
   // ── Preallocated scratch — nothing is constructed inside useFrame ─────────
   const scratch = useMemo(() => ({ offset: new THREE.Vector3() }), [])
 
-  const smoothed = useRef({ yaw: INITIAL_YAW, pitch: INITIAL_PITCH })
-
-  useFrame((state, delta) => {
-    // Guard against long frames (tab restore) producing a visible jump.
-    const dt = Math.min(delta, 0.05)
+  useFrame((state) => {
     const controller = controllerRef.current
     const p = controller.progress
     const s = getStages(p)
@@ -237,39 +229,29 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     const idle = reducedMotion ? 0 : 1
     const settleAmount = easeInOutCubic(s.settle)
 
-    // Pieces slide out along the cuts, hold, then glide back until the solid
-    // is whole again — the same loop as the buyer's `image10.gif`.
-    const spread =
-      easeInOutCubic(s.explode) *
-      (1 - easeInOutCubic(s.reassemble)) *
-      composition.explodeScale
+    // Pieces open steadily across the second half of the scroll and stay
+    // open: the page ends on the exploded composition, as demo.mp4 does.
+    const spread = easeInOutSine(s.explode) * composition.explodeScale
 
     // ── Whole-prism orientation ─────────────────────────────────────────────
     if (groupRef.current) {
-      const pointerYaw =
-        controller.pointer.x * 0.04 * composition.pointerStrength * idle
-      const pointerPitch =
-        controller.pointer.y * 0.025 * composition.pointerStrength * idle
+      // Scroll-driven rotation is applied directly. It already follows the
+      // damped scroll progress; smoothing it a second time made the prism turn
+      // late and roll behind the rest of the choreography. Pointer input is
+      // damped once, in ProgressDriver.
+      const sway = (1 - easeInOutSine(s.section) * 0.75) * idle
 
-      // Pointer influence tapers off once the technical section scan begins,
-      // so the diagram-like states stay square to camera.
-      const pointerFade = 1 - easeInOutSine(s.section) * 0.75
-
-      const targetYaw =
+      groupRef.current.rotation.y =
         baseYaw(s) +
-        pointerYaw * pointerFade +
-        Math.sin(time * 0.18) * 0.04 * idle * pointerFade
+        (controller.pointer.x * 0.04 * composition.pointerStrength +
+          Math.sin(time * 0.18) * 0.03) *
+          sway
 
-      const targetPitch =
+      groupRef.current.rotation.x =
         basePitch(s) +
-        pointerPitch * pointerFade +
-        Math.sin(time * 0.24) * 0.012 * idle * pointerFade
-
-      smoothed.current.yaw = damp(smoothed.current.yaw, targetYaw, 4.5, dt)
-      smoothed.current.pitch = damp(smoothed.current.pitch, targetPitch, 4.5, dt)
-
-      groupRef.current.rotation.y = smoothed.current.yaw
-      groupRef.current.rotation.x = smoothed.current.pitch
+        (controller.pointer.y * 0.025 * composition.pointerStrength +
+          Math.sin(time * 0.24) * 0.01) *
+          sway
 
       // Size comes from the hero layout (StageRig); full size on first frame.
       const breathe = 1 + Math.sin(time * 0.55) * 0.008 * idle
@@ -292,26 +274,49 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       easeOutCubic(range(sweepT, 0, 0.12)) *
       (1 - easeInOutSine(range(sweepT, 0.82, 1)))
 
+    // ── Cross-section through every piece (shapes.pptx `image2.gif`) ────────
+    // A horizontal plane rises from the base to the apex. At height y the
+    // pyramid's section is the square |x|, |z| <= h with h = (1 - y) / 2, and
+    // slice i keeps the part where kLow <= 2x + y <= kHigh: an exact rectangle
+    // per piece, drawn in the piece's own frame so it travels with it.
+    const sectionIn = easeOutCubic(range(s.section, 0, 0.15))
+    const scanT = easeInOutSine(s.section)
+    const scanY = lerp(-0.96, 0.96, scanT)
+    const half = sectionHalfExtent(scanY)
+    const planeFade = sectionIn * (1 - easeInOutSine(range(scanT, 0.85, 1)))
+
     // ── Structural slices ───────────────────────────────────────────────────
-    const edgeDim = 1 - settleAmount
+    const edgeDim = lerp(1, EDGE_SETTLED, settleAmount)
 
     for (let i = 0; i < slices.length; i++) {
-      const mesh = sliceRefs.current[i]
-      if (mesh) {
-        const t = SLICE_TRANSFORMS[i]
-        sliceOffset(i, spread, scratch.offset)
+      const slice = slices[i]
 
-        mesh.position.copy(scratch.offset)
-        mesh.rotation.z = t.tilt * spread
-        mesh.rotation.y = t.yaw * spread
+      const group = sliceRefs.current[i]
+      if (group) {
+        sliceOffset(i, spread, scratch.offset)
+        group.position.copy(scratch.offset)
+        group.rotation.z = sliceTilt(i, spread)
       }
 
       // A slice's seams are fully lit once the plane has reached its lower cut.
       const edgeMaterial = edgeMaterialRefs.current[i]
       if (edgeMaterial) {
-        const lit = clamp01((K_MAX - sweepK) / (K_MAX - slices[i].kLow))
+        const lit = clamp01((K_MAX - sweepK) / (K_MAX - slice.kLow))
         edgeMaterial.opacity =
           lerp(EDGE_IDLE, EDGE_LIT, easeOutCubic(lit)) * edgeDim
+      }
+
+      const section = sectionRefs.current[i]
+      if (section) {
+        const x0 = Math.max(-half, (slice.kLow - scanY) / 2)
+        const x1 = Math.min(half, (slice.kHigh - scanY) / 2)
+        const visible = planeFade > 0.004 && x1 - x0 > 0.002
+        section.visible = visible
+        if (visible) {
+          section.position.set((x0 + x1) / 2, scanY, 0)
+          section.scale.set((x1 - x0) / 2 + SECTION_PAD, 1, half + SECTION_PAD)
+          section.material.opacity = 0.9 * planeFade
+        }
       }
     }
 
@@ -374,36 +379,6 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         cutEdgeRef.current.material.opacity = 0.9 * sweepFade
       }
     }
-
-    // ── Cross sections (shapes.pptx `image2.gif`) ───────────────────────────
-    // Run over the reassembled solid, so the section always is the pyramid's
-    // true cross-section. The horizontal plane rises from the base to the apex
-    // with scroll; its half-extent is an exact function of elevation, so it
-    // shrinks to nothing as it reaches the apex.
-    const sectionIn = easeOutCubic(range(s.section, 0, 0.18))
-    const scanT = easeInOutSine(s.section)
-    const scanY = lerp(-0.98, 0.98, scanT)
-    const halfExtent = sectionHalfExtent(scanY)
-    const planeFade = sectionIn * (1 - easeInOutSine(range(scanT, 0.86, 1)))
-
-    if (sectionRef.current && sectionEdgeRef.current) {
-      const visible = planeFade > 0.004
-      sectionRef.current.visible = visible
-      sectionEdgeRef.current.visible = visible
-      if (visible) {
-        sectionRef.current.position.y = scanY
-        sectionRef.current.scale.set(halfExtent, 1, halfExtent)
-        sectionRef.current.material.opacity = 0.3 * planeFade
-
-        sectionEdgeRef.current.position.y = scanY
-        sectionEdgeRef.current.scale.set(
-          halfExtent * RING_INFLATE,
-          1,
-          halfExtent * RING_INFLATE
-        )
-        sectionEdgeRef.current.material.opacity = 0.9 * planeFade
-      }
-    }
   })
 
   return (
@@ -433,45 +408,29 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
               toneMapped={false}
             />
           </lineSegments>
+
+          {/* This piece's slice of the rising horizontal section. */}
+          <lineLoop
+            ref={(el) => {
+              sectionRefs.current[i] = el
+            }}
+            geometry={sectionOutline}
+            renderOrder={12}
+            visible={false}
+            frustumCulled={false}
+          >
+            <lineBasicMaterial
+              color={COLOR_SECTION}
+              transparent
+              opacity={0}
+              depthWrite={false}
+              depthTest={true}
+              blending={THREE.AdditiveBlending}
+              toneMapped={false}
+            />
+          </lineLoop>
         </group>
       ))}
-
-      {/* ── Rising horizontal cross-section ── */}
-      <mesh
-        ref={sectionRef}
-        geometry={sectionQuad}
-        renderOrder={11}
-        visible={false}
-        frustumCulled={false}
-      >
-        <meshBasicMaterial
-          color={COLOR_SECTION}
-          transparent
-          opacity={0}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-          depthTest={true}
-          blending={THREE.AdditiveBlending}
-          toneMapped={false}
-        />
-      </mesh>
-      <lineLoop
-        ref={sectionEdgeRef}
-        geometry={sectionOutline}
-        renderOrder={12}
-        visible={false}
-        frustumCulled={false}
-      >
-        <lineBasicMaterial
-          color={COLOR_SECTION}
-          transparent
-          opacity={0}
-          depthWrite={false}
-          depthTest={true}
-          blending={THREE.AdditiveBlending}
-          toneMapped={false}
-        />
-      </lineLoop>
 
       {/* ── Diagonal cut plane sweeping along the slice direction ── */}
       <mesh

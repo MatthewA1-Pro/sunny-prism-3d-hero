@@ -133,7 +133,7 @@ const run = async () => {
   )
   if (resizeDelta > TOL.coverage) failures++
 
-  // Reload while scrolled must resolve to the right state, not animate up from 0.
+  // A reload must reopen on the hero (top of the page), never mid-animation.
   console.log('\n── reload while scrolled ──')
   await page.evaluate((y) => window.scrollTo(0, y), Math.round(max * 0.75))
   await settle(1200)
@@ -143,12 +143,13 @@ const run = async () => {
   await page.waitForSelector('canvas', { timeout: 120000 })
   await settle(9000)
   const y = await page.evaluate(() => window.scrollY)
-  const afterReload = await shoot(page, max, 0.75, 'reload')
-  const reloadDelta = Math.abs(afterReload.coverage - fwd[0.75].coverage)
+  const afterReload = await shoot(page, max, 0, 'reload')
+  const reloadDelta = Math.abs(afterReload.coverage - fwd[0].coverage)
+  const reopenedOnHero = y === 0
   console.log(
-    `  restored scrollY=${y} of ${max}; cov=${afterReload.coverage} (baseline ${fwd[0.75].coverage}, delta ${reloadDelta.toFixed(2)}) ${reloadDelta <= TOL.coverage ? 'ok' : 'FAIL'}`
+    `  reopened at scrollY=${y} (expected 0, the hero); cov=${afterReload.coverage} (baseline ${fwd[0].coverage}, delta ${reloadDelta.toFixed(2)}) ${reopenedOnHero && reloadDelta <= TOL.coverage ? 'ok' : 'FAIL'}`
   )
-  if (reloadDelta > TOL.coverage) failures++
+  if (!reopenedOnHero || reloadDelta > TOL.coverage) failures++
 
   console.log('\nconsole/page errors:', errors.length)
   errors.slice(0, 8).forEach((e) => console.log('  ', e))

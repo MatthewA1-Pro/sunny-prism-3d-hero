@@ -43,9 +43,11 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
       return
     }
 
-    // Lambda 9 keeps fast flicks feeling responsive while still absorbing
-    // wheel-step jitter; damp() makes it frame-rate independent.
-    c.progress = damp(c.progress, c.target, 9, dt)
+    // The only smoothing stage for scroll: lambda 10 closes 63% of the gap in
+    // 0.1 s, enough to absorb wheel steps without the prism trailing the
+    // scroll. Nothing downstream smooths progress again. damp() makes it
+    // frame-rate independent.
+    c.progress = damp(c.progress, c.target, 10, dt)
     c.pointer.x = damp(c.pointer.x, c.pointerTarget.x, 3.5, dt)
     c.pointer.y = damp(c.pointer.y, c.pointerTarget.y, 3.5, dt)
   })
