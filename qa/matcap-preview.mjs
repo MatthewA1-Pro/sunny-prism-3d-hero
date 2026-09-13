@@ -46,12 +46,14 @@ const YAWS = [15, 25, 35, 45, 55, 65]
  * sat    saturation kept in the soft base (1 = as blurred, 0 = neutral grey)
  */
 const VARIANTS = [
-  { sign: 1, bend: 0, soft: 0, detail: 1, sat: 1 },
-  { sign: 1, bend: 0, soft: 2.2, detail: 0.9, sat: 1 },
-  { sign: 1, bend: 0, soft: 2.2, detail: 0.9, sat: 0.6 },
-  { sign: 1, bend: 0, soft: 2.2, detail: 0.9, sat: 0.35 },
-  { sign: 1, bend: 0, soft: 2.6, detail: 0.9, sat: 0.5 },
-  { sign: 1, bend: 0, soft: 2.0, detail: 1.0, sat: 0.5 },
+  // current production values
+  { sign: 1, bend: 0, soft: 2.4, detail: 0.9, sat: 0.4 },
+  // vividness candidates: stronger sharp matcap, more of the texture's colour
+  { sign: 1, bend: 0, soft: 2.0, detail: 1.2, sat: 0.6 },
+  { sign: 1, bend: 0, soft: 2.2, detail: 1.25, sat: 0.8 },
+  { sign: 1, bend: 0, soft: 1.8, detail: 1.5, sat: 0.9 },
+  { sign: 1, bend: 0, soft: 2.4, detail: 1.4, sat: 0.4 },
+  { sign: 1, bend: 0, soft: 2.0, detail: 1.0, sat: 1.0 },
 ]
 
 // ─── vector helpers ──────────────────────────────────────────────────────────
@@ -218,7 +220,7 @@ function renderTile(yawDeg, variant) {
         const grey = 0.2126 * raw[0] + 0.7152 * raw[1] + 0.0722 * raw[2]
         const base = raw.map((c) => Math.min(1, (grey + (c - grey) * softSat) * softGain))
         // Screen: sharp matcap detail over the soft silver base.
-        lin = lin.map((c, i) => 1 - (1 - base[i]) * (1 - c * detail))
+        lin = lin.map((c, i) => 1 - (1 - base[i]) * (1 - Math.min(1, c * detail)))
       }
       const out = aces(lin).map(toSrgb)
 

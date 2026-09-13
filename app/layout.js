@@ -1,3 +1,8 @@
+// Geometric sans closest to the design reference's typeface that is freely
+// licensed. Self-hosted from npm, so neither the build nor the browser
+// depends on reaching Google Fonts.
+import '@fontsource-variable/manrope'
+
 import './globals.css'
 
 export const metadata = {

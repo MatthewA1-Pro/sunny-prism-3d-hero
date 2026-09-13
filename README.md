@@ -1,12 +1,13 @@
-# Sunny Prism — 3D Hero
+# Sunny Prism — Hero
 
-A full-screen, scroll-driven 3D prism hero. One silver/iridescent square pyramid is
-cut along the buyer's diagonal slicing system, slides apart along its cuts, closes
-back into one solid, and is scanned by a horizontal cross-section — scrubbing
-smoothly forward and backward with the page scroll.
+The hero section of Sunny's site: the designed hero from Sunny's reference (copy,
+stats panel, grid frame and icon rail) with a scroll-driven 3D prism as its main
+visual. On scroll the prism moves to centre stage, is cut along the buyer's
+diagonal slicing system, slides apart, closes back into one solid and is scanned by
+a horizontal cross-section — then returns to its place as the hero copy comes back.
 
-Scope is the prism hero only. There are deliberately no features, pricing, contact
-or other landing-page sections.
+Scope is the hero only. There are deliberately no features, pricing, contact or
+other landing-page sections.
 
 ## Run
 
@@ -19,123 +20,138 @@ npm run lint
 npm run matcap:soft  # regenerate public/matcap-soft.png from public/matcap.png
 ```
 
-Stack (unchanged from the buyer's source): Next.js 16.1.6, React 19.2.3,
-three 0.182, @react-three/fiber 9.5, @react-three/drei 10.7, Tailwind CSS 4.
+Stack: Next.js 16.1.6, React 19.2.3, three 0.182, @react-three/fiber 9.5,
+@react-three/drei 10.7, Tailwind CSS 4, Manrope (self-hosted via
+`@fontsource-variable/manrope`, so builds never depend on Google Fonts).
 
 ## Structure
 
 ```text
 app/
-  layout.js            metadata, viewport, theme colour
-  page.js              scroll-container > PrismExperience + scroll-space
-  globals.css          background, fixed scene, scroll hint, fallback, reduced motion
-  icon.svg             favicon
+  layout.js              font, metadata, viewport
+  page.js                <main> > PrismHero
+  globals.css            design tokens, hero layout (stacked + 11-column grid), hint, fallback
 components/
-  PrismExperience.jsx  Canvas, scroll/pointer controller, responsive camera, fallback
-  PrismObject.jsx      sliced prism, silver matcap shader, seams, cut sweep, section scan
+  hero/
+    PrismHero.jsx        sticky stage + scroll track, controller, slot measurement, fallback
+    HeroContent.jsx      HeroFrame (grid lines, hatching) and HeroContent (copy, stats, rail)
+    ScrollHint.jsx
+  three/
+    PrismCanvas.jsx      transparent Canvas, progress damping, lens-shift framing, copy fade
+    PrismObject.jsx      sliced prism, silver matcap shader, seams, cut sweep, section scan
 lib/
-  prismGeometry.js     half-space solid construction, slicing, cross-sections
-  timeline.js          stage map, slice transforms, composition, orientation
+  heroContent.js         ALL hero copy + list of unresolved content
+  prismGeometry.js       half-space solid construction, slicing, cross-sections
+  timeline.js            stage map, focus/copy timing, hero framing maths, orientation
 public/
-  matcap.png           the buyer's chrome/dispersion matcap
-  matcap-soft.png      blurred copy of it (generated), the silver base layer
-  prism3.glb           buyer's original model, kept for reference; not loaded
+  matcap.png             the buyer's chrome/dispersion matcap
+  matcap-soft.png        blurred copy of it (generated), the silver base layer
+  prism3.glb             buyer's original model, kept for reference; not loaded
 scripts/
-  build-matcap-soft.mjs  generates matcap-soft.png
-references/            buyer material: demo.mp4, 12467.mp4, shapes.pptx,
-                       screenshots, and the original Feb-12 source (not shipped)
-qa/                    headless-Chrome and offline verification tools (not shipped)
+  build-matcap-soft.mjs
+references/              buyer material (not shipped)
+qa/                      headless-Chrome and offline verification tools (not shipped)
 ```
 
-## How it works
+## Hero composition
 
-**One progress value.** Scroll position is normalised to `0..1` and written into a
-ref by a passive listener. The frame loop damps toward it with
-`THREE.MathUtils.damp`, so the feel is frame-rate independent, and every
-structural transform — slices, cutting plane, section scan — is a pure function of
-that value. Reverse scrolling retraces the timeline exactly, and reloading
-mid-page resolves straight to the correct state. Scrolling and pointer movement
-never trigger a React render.
+The design reference is `shapes.pptx` slide 1 (`references/screenshots/pptx/image1.png`).
+All copy is transcribed from it into `lib/heroContent.js`; nothing was written for
+this build. Items the design does not settle are listed in `unresolvedContent`
+there (final copy, CTA destination, which logos belong in the rail).
 
-**One object, genuinely cut.** The prism is built procedurally as an intersection
-of half-spaces, then partitioned by three planes `2x + y = 0, -1, -2`. Those planes
-run parallel to the triangle's right edge — the slicing direction in the buyer's
-`shapes.pptx` (`image10.gif`) and annotated `prism.png` — and reproduce the ratios
-of the April source. The four slice volumes sum exactly to the pyramid's volume,
-so the closed prism has no gaps or overlaps. Slices only move along directions
-that lie inside the cut planes, so pieces cannot intersect.
+The hero is three layers in one sticky, full-viewport stage:
 
-**Proportion and framing** follow the `demo.mp4` hero: height 1.5x the base (the
-scale `Prism2.jsx` displayed the GLB at), seen near corner-on (40 deg) from almost
-level, filling roughly half the viewport height on desktop.
+| layer | z | content |
+|---|---|---|
+| `HeroFrame` | 0 | grid lines and hatched cells |
+| WebGL canvas | 1 | the prism (transparent canvas), in front of the grid as in the design |
+| `HeroContent` | 2 | copy, CTA, stats, rail icons, scroll hint |
 
-**Stages overlap** (`lib/timeline.js`):
+- **Desktop / landscape tablet** (≥1024px wide, landscape): the design's 11-column
+  grid — gutter, copy from column 2, stats panel in columns 10–11, icon rail
+  along the bottom. Colours, type sizes and spacing are sampled from the design
+  and scale with the stage width (`cqw`).
+- **Phones / portrait tablets**: recomposed as a stack — copy, prism, stats row,
+  scroll hint. The prism takes whatever height the copy and stats leave, so they
+  cannot collide.
 
-| progress   | stage      | what happens                                                  |
-|------------|------------|---------------------------------------------------------------|
-| 0.00–0.04  | hero       | closed prism at rest, full size on load, idle breathing        |
-| 0.04–0.30  | turn       | eases toward the angle where the cuts read                     |
-| 0.08–0.34  | reveal     | diagonal cutting plane sweeps through; each seam lights up     |
-| 0.24–0.46  | explode    | slices slide apart along the cut planes                        |
-| 0.54–0.76  | reassemble | after a hold, slices glide back into one solid (`image10.gif`) |
-| 0.62–0.92  | section    | horizontal section rises base → apex (`image2.gif`)            |
-| 0.86–1.00  | settle     | final angle, seams dim                                          |
+**Prism placement follows the DOM.** An invisible `.prism-slot` marks where the
+prism belongs in each layout. `PrismHero` measures it (ResizeObserver, fonts ready,
+resize) and `PrismCanvas` frames the prism onto it with a lens shift
+(`camera.setViewOffset`): the camera still looks straight at the prism, so its
+shading and perspective are identical wherever the layout places it.
 
-The section scan runs over the reassembled solid so it is always the pyramid's
-true cross-section; its half-extent is exactly `(1 - y) / 2` at height `y`, so it
-shrinks to nothing at the apex. Plane outlines are drawn just outside the surface
-and depth-tested, so they read as scan lines crossing the faces.
+## Scroll choreography
 
-**Material.** The buyer's `matcap.png` is 58% near-black inside its disc, so a
-plain matcap on flat faces renders much of the prism as black card (55–69% of the
-silhouette in earlier builds), while the approved `demo.mp4` hero is under 1%
-black. `PrismObject.jsx` therefore patches `meshMatcapMaterial`: a blurred,
-partly desaturated copy of the same matcap (`matcap-soft.png`) provides a silver
-base with the texture's own warm/cool tint, and the sharp matcap is screened on
-top for streaks and highlights. Opaque, single-sided, one shared material, no
-environment map or HDR dependency.
+One normalised progress value (`0..1`) over a `300vh` track drives everything —
+prism transforms, framing and the copy fade — so reverse scrolling retraces the
+timeline exactly and DOM and WebGL cannot drift apart. It is damped with
+`THREE.MathUtils.damp` (frame-rate independent). Scrolling never triggers a React
+render.
 
-**Responsive.** Separate camera distance, scale and explode damping for phones,
-tablets and desktop; phones keep the desktop FOV so the matcap reads the same.
-Pointer parallax is mouse-only.
+| progress   | what happens                                                                 |
+|------------|------------------------------------------------------------------------------|
+| 0.00–0.06  | the designed hero at rest; prism breathes in its slot                         |
+| 0.06–0.30  | copy and stats fade; prism glides to centre stage and grows                   |
+| 0.08–0.34  | a diagonal cutting line crosses the prism; each seam lights as it passes      |
+| 0.24–0.46  | slices slide apart along the cut planes                                        |
+| 0.54–0.76  | slices close back into one solid (`image10.gif`)                               |
+| 0.62–0.92  | horizontal section rises base → apex over the whole solid (`image2.gif`)       |
+| 0.84–1.00  | prism returns to its slot, seams fade, copy returns: the page ends on the hero |
+
+**Geometry.** The prism is built procedurally as an intersection of half-spaces and
+partitioned by three planes `2x + y = 0, -1, -2`, parallel to the triangle's right
+edge — the slicing direction in `shapes.pptx` and the annotated `prism.png`. Slice
+volumes sum exactly to the pyramid; slices only move within their cut planes, so
+pieces cannot intersect. Proportion (height 1.5x base) and hero angle (40°) follow
+`demo.mp4`.
+
+**Material.** `matcap.png` is 58% near-black inside its disc, so a plain matcap
+renders flat faces as black card. `PrismObject.jsx` layers the buyer's matcap over
+a blurred, partly desaturated copy of itself: a silver base carrying the texture's
+own tint, with the sharp matcap screened on top for highlights and rainbow edges.
 
 **Accessibility and failure modes.** `prefers-reduced-motion` removes idle motion,
-parallax and the hint pulse while keeping the prism and its scroll choreography.
-Without WebGL a static prism fallback renders on the dark background.
+parallax, the copy lift and the hint pulse; scroll still drives the scene. Faded
+copy is `visibility: hidden`, so it leaves the tab order. Without WebGL a static
+prism renders in the same slot. Touch and pen input never drive parallax, and the
+canvas passes vertical swipes through to the page.
 
 ## Verification (`qa/`)
 
 With `npm run start` running:
 
 ```bash
-node qa/quick.mjs http://localhost:3000 <label> 1440 900 "0,0.5,1"  # fast captures + dark-pixel share
-node qa/capture.mjs http://localhost:3000 <label> 1440 900          # 11-stop timeline screenshots + metrics
-node qa/scrub-test.mjs http://localhost:3000                        # forward/reverse, flick, resize, reload
-node qa/a11y-fallback-test.mjs http://localhost:3000                # reduced motion + no-WebGL fallback
+node qa/hero.mjs http://localhost:3000 <label> 1440 900 "0,0.25,0.5,1"  # what a visitor sees, hint included
+node qa/scrub-test.mjs http://localhost:3000                            # forward/reverse, flick, resize, reload
+node qa/a11y-fallback-test.mjs http://localhost:3000                    # reduced motion + no-WebGL fallback
+node qa/quick.mjs http://localhost:3000 <label> 1440 900 "0,0.5,1"      # prism-focused captures + dark-pixel share
+node qa/diag-scroll.mjs http://localhost:3000 390 844                   # per-step scroll timing, fps, ResizeObserver count
 ```
 
-Offline (no browser):
+Headless Chrome renders software WebGL with no vsync, so it redraws flat out and
+DevTools calls can take seconds to return — especially on small viewports.
+`diag-scroll.mjs` separates that harness effect from a real page stall (the page
+itself reports its frame rate and ResizeObserver activity).
+
+Offline:
 
 ```bash
-node qa/matcap-preview.mjs    # exact matcap shader + ACES, contact sheet across yaw/material variants
-node qa/matcap-solver.mjs 1.5 # coarse per-face orientation sweep
+node qa/matcap-preview.mjs    # exact matcap shader + ACES, contact sheet across material variants
 node qa/geotest.mjs           # slice volumes and partition checks
 ```
 
-The browser scripts need Chrome at `C:/Program Files/Google/Chrome/Application/chrome.exe`
-(edit `CHROME` in the scripts elsewhere). Screenshots are written to `qa/shots/`,
-which is git-ignored.
+Browser scripts need Chrome at `C:/Program Files/Google/Chrome/Application/chrome.exe`
+(edit `CHROME` in the scripts elsewhere). Screenshots go to `qa/shots/` (git-ignored).
 
 ## Notes on the source material
 
-- `demo.mp4` recorded the buyer's `Prism2.jsx`: `prism3.glb` is a double-walled
-  shell rendered double-sided and transparent, which is where its soft silver look
-  comes from. This build reproduces that look on a clean procedural solid instead.
-- The deployed site (`3-d-prism.vercel.app`) is a newer revision than the buyer's
-  `prism-main` ZIP: it adds the scroll hint, `300vh` scroll space, a GLB prism that
-  cross-fades into a procedural one, and removes OrbitControls. This build keeps
-  the scroll hint and scroll length, and replaces the cross-fade with a single
-  continuous object.
-- The April `prism-final-v2` experiments (transmission glass, cyan core, extreme
-  FOV "orthographic" push, `Width/2` / `Height/2` labels) come from a camera-frustum
-  diagram in the deck rather than from the prism itself, and are not included.
+- `demo.mp4` and `12467.mp4` show the prism only; the hero layout comes from the
+  `shapes.pptx` slide 1 design.
+- `demo.mp4` recorded the buyer's `Prism2.jsx`: `prism3.glb` is a double-walled shell
+  rendered double-sided, which is where its soft silver look comes from. This build
+  reproduces that look on a clean procedural solid.
+- The April `prism-final-v2` experiments (transmission glass, cyan core, extreme FOV
+  push, `Width/2` / `Height/2` labels) come from a camera-frustum diagram in the deck
+  rather than from the prism, and are not included.

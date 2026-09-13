@@ -54,9 +54,10 @@ const COLOR_CUT = new THREE.Color('#FF40B0')
  */
 const RING_INFLATE = 1.012
 
-/* Seam line opacity: a faint hint on the closed hero, fully lit once the
- * cutting plane has passed through that slice. */
-const EDGE_IDLE = 0.1
+/* Seam line opacity: hidden on the closed hero (the page opens on a clean
+ * solid), fully lit once the cutting plane has passed through that slice, and
+ * hidden again once the prism settles back into the closing hero. */
+const EDGE_IDLE = 0
 const EDGE_LIT = 0.5
 
 const MATCAP_URL = '/matcap.png'
@@ -67,9 +68,9 @@ const MATCAP_SOFT_URL = '/matcap-soft.png'
  *
  * `matcap.png` is 58% near-black inside its disc, so a plain matcap lookup on
  * flat faces renders much of the prism as black card whatever its orientation
- * (55-69% of the silhouette in the previous build). The approved `demo.mp4`
- * hero is under 1% black: soft mid-grey faces (luminance ~86-114, low
- * saturation) carrying saturated rainbow streaks.
+ * (55-69% of the silhouette in an earlier build). The approved `demo.mp4` hero
+ * is under 1% black: soft mid-grey faces (luminance ~86-114, low saturation)
+ * carrying saturated rainbow streaks.
  *
  * So the buyer's matcap is layered over a blurred copy of itself
  * (`matcap-soft.png`, built by scripts/build-matcap-soft.mjs). The blurred copy
@@ -78,11 +79,20 @@ const MATCAP_SOFT_URL = '/matcap-soft.png'
  * the texture's green band — and the sharp matcap is screened on top for the
  * streaks and highlights. `qa/matcap-preview.mjs` reproduces this shader
  * offline, including ACES tone mapping: across the timeline's yaw band it
- * measures 0% black at luminance ~90-120.
+ * measures 0% black at luminance ~95-130.
+ *
+ * The sharp layer is weighted above 1 (clamped) so the chrome's highlights and
+ * rainbow edge bands read clearly on the silver, next to the bright glass of
+ * the hero design; at 0.9 the prism read as matte grey.
  */
 const SOFT_GAIN = 2.4
-const SOFT_SATURATION = 0.4
-const MATCAP_DETAIL = 0.9
+const SOFT_SATURATION = 0.5
+const MATCAP_DETAIL = 1.4
+
+/* Depth offsets (polygonOffset factor and units) for the outer surface and
+ * for interior cut faces. See createPrismMaterial. */
+const DEPTH_OFFSET_OUTER = 2
+const DEPTH_OFFSET_INTERIOR = 6
 
 /*
  * Matcap textures are colour maps: they must be sampled in sRGB or the chrome
@@ -104,10 +114,17 @@ function toSoftSRGB(texture) {
   texture.needsUpdate = true
 }
 
-function createPrismMaterial(matcap, matcapSoft) {
+function createPrismMaterial(matcap, matcapSoft, depthOffset) {
   const material = new THREE.MeshMatcapMaterial({
     matcap,
     side: THREE.FrontSide,
+    // Faces sit a hair back in depth, so seam lines draw cleanly on top of
+    // them. Interior cut faces sit further back, so wherever one meets the
+    // outer surface along a seam the silver surface wins instead of the dark
+    // cut face z-fighting through as a dashed line.
+    polygonOffset: true,
+    polygonOffsetFactor: depthOffset,
+    polygonOffsetUnits: depthOffset,
   })
 
   material.onBeforeCompile = (shader) => {
@@ -136,7 +153,7 @@ uniform float matcapDetail;`
 		vec3 softColor = texture2D( matcapSoft, uv ).rgb;
 		float softLuma = dot( softColor, vec3( 0.2126, 0.7152, 0.0722 ) );
 		vec3 silver = min( mix( vec3( softLuma ), softColor, softSaturation ) * softGain, vec3( 1.0 ) );
-		matcapColor.rgb = 1.0 - ( 1.0 - silver ) * ( 1.0 - matcapColor.rgb * matcapDetail );`
+		matcapColor.rgb = 1.0 - ( 1.0 - silver ) * ( 1.0 - min( matcapColor.rgb * matcapDetail, vec3( 1.0 ) ) );`
       )
   }
   material.customProgramCacheKey = () => 'prism-silver-matcap'
@@ -148,12 +165,20 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   const matcap = useTexture(MATCAP_URL, toSRGB)
   const matcapSoft = useTexture(MATCAP_SOFT_URL, toSoftSRGB)
 
-  // One material shared by every slice: one program, one set of uniforms.
-  const prismMaterial = useMemo(
-    () => createPrismMaterial(matcap, matcapSoft),
+  // Shared by every slice, indexed by geometry group: [outer surface,
+  // interior cut faces]. Both compile to the same shader program; only the
+  // depth offset render state differs.
+  const prismMaterials = useMemo(
+    () => [
+      createPrismMaterial(matcap, matcapSoft, DEPTH_OFFSET_OUTER),
+      createPrismMaterial(matcap, matcapSoft, DEPTH_OFFSET_INTERIOR),
+    ],
     [matcap, matcapSoft]
   )
-  useEffect(() => () => prismMaterial.dispose(), [prismMaterial])
+  useEffect(
+    () => () => prismMaterials.forEach((material) => material.dispose()),
+    [prismMaterials]
+  )
 
   const groupRef = useRef(null)
   const sliceRefs = useRef([])
@@ -246,15 +271,14 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       groupRef.current.rotation.y = smoothed.current.yaw
       groupRef.current.rotation.x = smoothed.current.pitch
 
-      // Already full size on load — the hero never starts from nothing.
+      // Size comes from the hero layout (StageRig); full size on first frame.
       const breathe = 1 + Math.sin(time * 0.55) * 0.008 * idle
-      const scale = composition.scale * breathe
+      const scale = controller.stage.scale * breathe
       groupRef.current.scale.set(
         PRISM_SHAPE[0] * scale,
         PRISM_SHAPE[1] * scale,
         PRISM_SHAPE[2] * scale
       )
-      groupRef.current.position.y = composition.groupY
     }
 
     // ── Diagonal cutting plane ──────────────────────────────────────────────
@@ -269,7 +293,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       (1 - easeInOutSine(range(sweepT, 0.82, 1)))
 
     // ── Structural slices ───────────────────────────────────────────────────
-    const edgeDim = 1 - settleAmount * 0.4
+    const edgeDim = 1 - settleAmount
 
     for (let i = 0; i < slices.length; i++) {
       const mesh = sliceRefs.current[i]
@@ -394,7 +418,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         >
           <mesh
             geometry={slice.geometry}
-            material={prismMaterial}
+            material={prismMaterials}
             renderOrder={0}
           />
           <lineSegments geometry={sliceEdges[i]} renderOrder={1}>
