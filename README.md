@@ -35,7 +35,7 @@ app/
 components/
   hero/
     PrismHero.jsx        sticky stage + scroll track, controller, slot measurement, fallback
-    HeroContent.jsx      HeroFrame (grid lines, hatching) and HeroContent (copy, stats, rail)
+    HeroContent.jsx      copy, CTA, stats and scroll hint layout
     ScrollHint.jsx
   three/
     PrismCanvas.jsx      transparent Canvas, progress damping, lens-shift framing, copy fade
@@ -59,20 +59,19 @@ qa/                      headless-Chrome and offline verification tools (not shi
 The design reference is `shapes.pptx` slide 1 (`references/screenshots/pptx/image1.png`).
 All copy is transcribed from it into `lib/heroContent.js`; nothing was written for
 this build. Items the design does not settle are listed in `unresolvedContent`
-there (final copy, CTA destination, which logos belong in the rail).
+there (final copy, CTA destination).
 
-The hero is three layers in one sticky, full-viewport stage:
+The hero is two layers in one sticky, full-viewport stage: the WebGL canvas (the
+prism, on a transparent canvas) and `HeroContent` above it (copy, CTA, stats,
+scroll hint). The design's visible grid lines, hatched cells and bottom icon rail
+were removed at the client's request; the layout still sits on the design's
+invisible 11-column grid.
 
-| layer | z | content |
-|---|---|---|
-| `HeroFrame` | 0 | grid lines and hatched cells |
-| WebGL canvas | 1 | the prism (transparent canvas), in front of the grid as in the design |
-| `HeroContent` | 2 | copy, CTA, stats, rail icons, scroll hint |
-
-- **Desktop / landscape tablet** (≥1024px wide, landscape): the design's 11-column
-  grid — gutter, copy from column 2, stats panel in columns 10–11, icon rail
-  along the bottom. Colours, type sizes and spacing are sampled from the design
-  and scale with the stage width (`cqw`).
+- **Desktop / landscape tablet** (≥1024px wide, landscape): copy from column 2,
+  stats in columns 10–11, the scroll hint centred along the bottom. Colours, type
+  sizes and spacing are sampled from the design and scale with the stage width
+  (`cqw`), capped by the viewport height (`svh`) so short browser windows shrink
+  the text instead of overlapping it.
 - **Phones / portrait tablets**: recomposed as a stack — copy, prism, stats row,
   scroll hint. The prism takes whatever height the copy and stats leave, so they
   cannot collide.

@@ -10,7 +10,7 @@ import React, {
 } from 'react'
 
 import PrismCanvas from '@/components/three/PrismCanvas'
-import HeroContent, { HeroFrame } from './HeroContent'
+import HeroContent from './HeroContent'
 import ScrollHint from './ScrollHint'
 import { clamp01, layoutFromRects } from '@/lib/timeline'
 
@@ -234,8 +234,6 @@ export default function PrismHero() {
   return (
     <section className="prism-hero" ref={heroRef} aria-labelledby="hero-title">
       <div className="prism-stage" ref={stageRef}>
-        <HeroFrame />
-
         <div className="hero-webgl" aria-hidden="true">
           {webgl === true && !canvasFailed ? (
             <CanvasErrorBoundary onError={onCanvasError}>

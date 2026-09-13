@@ -6,11 +6,8 @@
  */
 :root {
   --bg: #0f021f;
-  --line: #3f4260;
-  --hatch: rgba(96, 92, 122, 0.55);
   --text: #ffffff;
   --text-muted: #b1b4c0;
-  --text-dim: #a19ca6;
   --accent-gradient: linear-gradient(90deg, #9856ff 0%, #01f4b1 100%);
   --cta-gradient: linear-gradient(90deg, #ff7701 0%, #24dddb 100%);
   --pad: clamp(22px, 6vw, 56px);
@@ -62,19 +59,13 @@ body {
   background: var(--bg);
   container-type: inline-size;
   --col: calc(100cqw / 11);
-  --rail-h: min(var(--col), 16svh);
+  --foot-h: min(var(--col), 16svh);
 }
 
-.hero-frame,
 .hero-webgl,
 .hero-ui {
   position: absolute;
   inset: 0;
-}
-
-.hero-frame {
-  z-index: 0;
-  pointer-events: none;
 }
 
 /* pan-y lets a touch drag scroll the page straight through the canvas. */
@@ -98,29 +89,7 @@ body {
   pointer-events: auto;
 }
 
-.hatch {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--hatch) 0 1px,
-    transparent 1px 8.5px
-  );
-}
-
 /* ── Phones and portrait tablets (default): stacked composition ─────────── */
-
-.frame-gutter,
-.frame-panel,
-.frame-rail {
-  display: none;
-}
-
-.frame-mobile {
-  position: absolute;
-  inset: 0 calc(var(--pad) * 0.45);
-  border-left: 1px solid var(--line);
-  border-right: 1px solid var(--line);
-  opacity: 0.55;
-}
 
 .hero-ui {
   display: flex;
@@ -228,25 +197,16 @@ body {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 8px calc(var(--pad) * -1) 0;
+  gap: 12px;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--line);
   will-change: opacity, transform;
 }
 
 .hero-stat {
   display: flex;
   flex-direction: column;
-  padding: 12px 8px 2px 14px;
-}
-
-.hero-stat:first-child {
-  padding-left: var(--pad);
-}
-
-.hero-stat + .hero-stat {
-  border-left: 1px solid var(--line);
 }
 
 .hero-stat-value {
@@ -270,11 +230,6 @@ body {
 
 .hero-stat-label span {
   display: block;
-}
-
-.hero-panel-icon,
-.hero-rail {
-  display: none;
 }
 
 @media (max-width: 599px) {
@@ -333,73 +288,20 @@ body {
   }
 }
 
-/* ── Desktop and landscape tablets: the design's 11-column grid ─────────── */
+/* ── Desktop and landscape tablets: the design's column layout ──────────────
+   Sizes scale with the stage width (cqw) as in the design, and are also
+   capped by the viewport height (svh), so a short browser window shrinks the
+   copy and stats instead of letting them run into each other. */
 
 @media (min-width: 1024px) and (min-aspect-ratio: 6/5) {
-  .hero-frame,
   .hero-ui {
     display: grid;
     grid-template-columns: repeat(11, minmax(0, 1fr));
-    grid-template-rows: minmax(0, 1fr) var(--rail-h);
-  }
-
-  .hero-ui {
+    grid-template-rows: minmax(0, 1fr) var(--foot-h);
     padding: 0;
   }
 
-  /* Frame layer */
-
-  .frame-mobile {
-    display: none;
-  }
-
-  .frame-gutter {
-    display: block;
-    grid-column: 1;
-    grid-row: 1;
-    border-right: 1px solid var(--line);
-  }
-
-  .frame-panel {
-    display: grid;
-    grid-column: 10 / 12;
-    grid-row: 1;
-    grid-template-rows: minmax(0, 1fr) var(--col);
-    border-left: 1px solid var(--line);
-  }
-
-  .frame-panel-icons {
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    border-top: 1px solid var(--line);
-  }
-
-  .frame-panel-icons > * + * {
-    border-left: 1px solid var(--line);
-  }
-
-  .frame-rail {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(11, minmax(0, 1fr));
-    border-top: 1px solid var(--line);
-  }
-
-  .frame-rail-cell {
-    border-right: 1px solid var(--line);
-  }
-
-  .frame-rail-cell:last-child {
-    border-right: 0;
-  }
-
-  .frame-rail-span-3 {
-    grid-column: span 3;
-  }
-
-  /* Copy: design column 2 onward, vertically centred in the upper row. */
+  /* Copy: design column 2 onward, vertically centred above the foot. */
 
   .hero-copy {
     grid-column: 2 / 9;
@@ -409,13 +311,13 @@ body {
   }
 
   .hero-eyebrow {
-    margin-bottom: clamp(18px, 1.8cqw, 40px);
+    margin-bottom: clamp(14px, min(1.8cqw, 3.6svh), 40px);
     font-size: clamp(11px, 0.85cqw, 16px);
   }
 
   .hero-title {
-    margin-bottom: clamp(12px, 0.9cqw, 22px);
-    font-size: clamp(34px, 3.55cqw, 70px);
+    margin-bottom: clamp(10px, min(0.9cqw, 1.8svh), 22px);
+    font-size: clamp(30px, min(3.55cqw, 7.8svh), 70px);
     line-height: 1.13;
   }
 
@@ -426,22 +328,22 @@ body {
   .hero-body p {
     max-width: 44cqw;
     margin-bottom: 1.9em;
-    font-size: clamp(14px, 1.08cqw, 21px);
+    font-size: clamp(13px, min(1.08cqw, 2.5svh), 21px);
     line-height: 1.9;
   }
 
   .hero-cta-row {
-    margin-top: clamp(28px, 3.4cqw, 80px);
+    margin-top: clamp(20px, min(3.4cqw, 6svh), 80px);
   }
 
   .hero-cta {
-    height: clamp(44px, 3.18cqw, 60px);
+    height: clamp(42px, min(3.18cqw, 7svh), 60px);
     padding: 0 clamp(20px, 1.65cqw, 32px);
     font-size: clamp(14px, 1.02cqw, 19px);
   }
 
-  /* The prism's place in the design: right of the copy, crossing into the
-     stats panel and the rail. Its height is the prism plus breathing room. */
+  /* The prism's place in the design: right of the copy, reaching down into
+     the foot of the stage. Its height is the prism plus breathing room. */
 
   .prism-slot {
     position: absolute;
@@ -453,7 +355,7 @@ body {
     transform: translate(-50%, -50%);
   }
 
-  /* Stats panel: design columns 10-11. */
+  /* Stats: design columns 10-11. */
 
   .hero-stats {
     grid-column: 10 / 12;
@@ -461,112 +363,23 @@ body {
     align-self: start;
     display: flex;
     flex-direction: column;
-    gap: clamp(20px, 3.3cqw, 64px);
+    gap: clamp(16px, min(3.3cqw, 6svh), 64px);
     margin: 0;
-    padding: clamp(24px, 2.84cqw, 56px) 0 0 clamp(18px, 2.8cqw, 54px);
-    border-top: 0;
-  }
-
-  .hero-stat,
-  .hero-stat:first-child {
-    padding: 0;
-  }
-
-  .hero-stat + .hero-stat {
-    border-left: 0;
+    padding: clamp(20px, min(2.84cqw, 5svh), 56px) 0 0 clamp(18px, 2.8cqw, 54px);
   }
 
   .hero-stat-value {
-    font-size: clamp(30px, 3.18cqw, 62px);
+    font-size: clamp(26px, min(3.18cqw, 7svh), 62px);
   }
 
   .hero-stat-label {
-    margin-top: clamp(4px, 0.6cqw, 12px);
-    font-size: clamp(13px, 1.19cqw, 22px);
+    margin-top: clamp(4px, min(0.6cqw, 1.2svh), 12px);
+    font-size: clamp(12px, min(1.19cqw, 2.7svh), 22px);
     line-height: 1.33;
   }
 
-  /* The design puts this icon in the left panel cell; the prism's base corner
-     reaches that cell here, so it takes the right one to stay clear. */
-  .hero-panel-icon {
-    display: grid;
-    place-items: center;
-    grid-column: 11;
-    grid-row: 1;
-    align-self: end;
-    height: var(--col);
-  }
-
-  /* Bottom rail */
-
-  .hero-rail {
-    display: grid;
-    grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(11, minmax(0, 1fr));
-    align-items: center;
-  }
-
-  .hero-rail svg,
-  .hero-panel-icon svg {
-    fill: none;
-    stroke: var(--text);
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .rail-logo svg {
-    width: clamp(26px, 2.8cqw, 54px);
-    height: clamp(26px, 2.8cqw, 54px);
-  }
-
-  .rail-logo-start {
-    grid-column: 1;
-    padding-left: calc(var(--col) * 0.3);
-  }
-
-  .rail-logo-end {
-    grid-column: 8;
-    justify-self: center;
-  }
-
-  .rail-arrows {
-    grid-column: 4 / 7;
-    display: flex;
-    align-items: center;
-    gap: 3cqw;
-    padding-left: 2.67cqw;
-  }
-
-  .rail-arrow {
-    width: clamp(18px, 2cqw, 38px);
-    height: clamp(18px, 2cqw, 38px);
-    stroke-width: 1.8;
-  }
-
-  .rail-counter {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: clamp(38px, 3.63cqw, 70px);
-    height: clamp(30px, 2.84cqw, 54px);
-    margin-left: -2.1cqw;
-    border-radius: clamp(8px, 0.7cqw, 14px);
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--text-dim);
-    font-size: clamp(11px, 0.74cqw, 14px);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-  }
-
-  .hero-panel-icon svg {
-    width: clamp(28px, 4cqw, 72px);
-    height: clamp(28px, 4cqw, 72px);
-  }
-
   .scroll-hint {
-    grid-column: 7;
+    grid-column: 1 / -1;
     grid-row: 2;
     align-self: center;
     justify-self: center;
@@ -576,7 +389,7 @@ body {
   }
 
   .scroll-hint-arrow {
-    height: clamp(24px, 2.4cqw, 44px);
+    height: clamp(22px, min(2.4cqw, 5svh), 44px);
   }
 }
 
