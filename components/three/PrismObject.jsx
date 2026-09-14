@@ -21,8 +21,8 @@ import {
   getStages,
   sliceOffset,
   sliceTilt,
-  baseYaw,
-  basePitch,
+  prismYaw,
+  prismPitch,
   PRISM_SHAPE,
   easeInOutCubic,
   easeOutCubic,
@@ -229,8 +229,8 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     const idle = reducedMotion ? 0 : 1
     const settleAmount = easeInOutCubic(s.settle)
 
-    // Pieces open steadily across the second half of the scroll and stay
-    // open: the page ends on the exploded composition, as demo.mp4 does.
+    // Pieces open steadily through the main transition and stay open: the
+    // final state is the exploded composition, as in demo.mp4.
     const spread = easeInOutSine(s.explode) * composition.explodeScale
 
     // ── Whole-prism orientation ─────────────────────────────────────────────
@@ -242,13 +242,13 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       const sway = (1 - easeInOutSine(s.section) * 0.75) * idle
 
       groupRef.current.rotation.y =
-        baseYaw(s) +
+        prismYaw(p) +
         (controller.pointer.x * 0.04 * composition.pointerStrength +
           Math.sin(time * 0.18) * 0.03) *
           sway
 
       groupRef.current.rotation.x =
-        basePitch(s) +
+        prismPitch(p) +
         (controller.pointer.y * 0.025 * composition.pointerStrength +
           Math.sin(time * 0.24) * 0.01) *
           sway

@@ -44,10 +44,12 @@ body {
    A sticky full-viewport stage over a scroll track: the hero stays on screen
    while the scroll progress drives the prism. */
 
+/* 220vh of scroll: the storyboard's few seconds of continuous motion at a
+   normal scrolling pace. */
 .prism-hero {
   position: relative;
-  height: calc(100vh + 300vh);
-  height: calc(100svh + 300vh);
+  height: calc(100vh + 220vh);
+  height: calc(100svh + 220vh);
 }
 
 .prism-stage {
@@ -62,10 +64,62 @@ body {
   --foot-h: min(var(--col), 16svh);
 }
 
+.hero-bg,
 .hero-webgl,
 .hero-ui {
   position: absolute;
   inset: 0;
+}
+
+/* ── Background light (behind the canvas) ───────────────────────────────────
+   Positioned every frame by the prism rig with transform/opacity only, so
+   moving them never triggers layout. Each is a 100px box scaled to size. */
+
+.hero-bg {
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hero-aura {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(38% 42% at 68% 46%, rgba(92, 60, 220, 0.3), transparent 72%),
+    radial-gradient(30% 32% at 82% 78%, rgba(40, 96, 230, 0.16), transparent 72%);
+  opacity: 0.8;
+  will-change: transform, opacity;
+}
+
+.hero-glow,
+.hero-pool {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  opacity: 0;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+
+.hero-glow {
+  background: radial-gradient(
+    closest-side,
+    rgba(128, 96, 255, 0.42),
+    rgba(80, 64, 220, 0.16) 50%,
+    transparent 100%
+  );
+}
+
+.hero-pool {
+  background: radial-gradient(
+    closest-side,
+    rgba(110, 150, 255, 0.5),
+    rgba(100, 90, 255, 0.16) 55%,
+    transparent 100%
+  );
 }
 
 /* pan-y lets a touch drag scroll the page straight through the canvas. */

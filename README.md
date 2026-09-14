@@ -40,6 +40,7 @@ components/
   three/
     PrismCanvas.jsx      transparent Canvas, progress damping, lens-shift framing, copy fade
     PrismObject.jsx      sliced prism, silver matcap shader, seams, cut sweep, section scan
+    AmbientField.jsx     orbit lines and particles around the prism
 lib/
   heroContent.js         ALL hero copy + list of unresolved content
   prismGeometry.js       half-space solid construction, slicing, cross-sections
@@ -84,24 +85,33 @@ shading and perspective are identical wherever the layout places it.
 
 ## Scroll choreography
 
-One normalised progress value (`0..1`) over a `300vh` track drives everything —
-prism transforms, framing and the copy fade — so reverse scrolling retraces the
+One normalised progress value (`0..1`) over a `220vh` track drives everything —
+prism transforms, its path, the copy drift and the background glow — so reverse scrolling retraces the
 timeline exactly and DOM and WebGL cannot drift apart. It is damped once, with
 `THREE.MathUtils.damp` (frame-rate independent); nothing downstream smooths it a
 second time, so the prism never trails the scroll. Scrolling never triggers a React
 render, and the page always opens at the top, on the hero.
 
-The sequence only moves forward — no state is undone by scrolling further — and
-follows the requirement's states and `demo.mp4`:
+The motion follows the hero animation storyboard (the copy stays readable while
+the prism floats, moves and rotates through the scroll, then settles on the
+right), and the geometry follows the requirement's slicing states. It only moves
+forward — no state is undone by scrolling further:
 
-| progress   | state                 | what happens                                                         |
-|------------|-----------------------|----------------------------------------------------------------------|
-| 0.00–0.04  | 0 hero                | the designed hero at rest; prism breathes in its slot                |
-| 0.04–0.40  | 1 prism enters motion | copy and stats clear; prism glides to centre stage and turns         |
-| 0.18–0.40  | 2 slicing visible     | a diagonal cutting line crosses the prism; each seam lights up       |
-| 0.34–0.90  | 3 exploded view       | pieces separate steadily into a diagonal staircase, as in the demo   |
-| 0.60–0.92  | 4 cross-section       | a horizontal section rises base → apex through every piece           |
-| 0.86–1.00  | 5 settle              | final angle; the exploded composition holds                          |
+| progress  | storyboard beat   | prism and page                                                  | geometry |
+|-----------|-------------------|-----------------------------------------------------------------|----------|
+| 0.00      | 1 initial hero    | in its slot, tilted, floating                                   | closed |
+| 0.00–0.30 | 2 scroll begins   | turns, drifts toward centre, slight push-in; stats clear        | cutting line crosses it, seams light (0.12–0.34) |
+| 0.30–0.60 | 3 main transition | closer and slightly left, other faces turn in; glow brightens   | pieces open (0.30–0.80) |
+| 0.60–0.85 | 4 new state       | back toward the right, scale eases down                         | cross-section rises through every piece (0.50–0.82) |
+| 0.85–1.00 | 5 final state     | settles, rotation stabilises; orbit lines and particles         | exploded staircase holds |
+
+Position, scale and rotation run on a smooth spline through those beats, so the
+prism flows through them without stopping; every angle stays inside the band
+where the silver matcap renders fully lit. The copy drifts up slightly (text
+parallax), and a glow, a light pool and a background aura behind the canvas
+follow the prism more slowly (background parallax). On phones and portrait
+tablets the prism stays in its slot under the copy, and its size is capped so
+the open pieces fit the screen.
 
 **Geometry.** The prism is built procedurally as an intersection of half-spaces and
 partitioned by three planes `2x + y = 0, -1, -2`, parallel to the triangle's right

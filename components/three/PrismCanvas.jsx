@@ -4,15 +4,17 @@ import React, { useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 
 import PrismObject from './PrismObject'
+import AmbientField from './AmbientField'
 import {
   CAMERA,
   SILHOUETTE_DROP,
+  copyDrift,
   damp,
   framePrism,
   getComposition,
-  getContentVisibility,
-  getFocus,
+  glowIntensity,
   scaleForFraction,
+  statsVisibility,
 } from '@/lib/timeline'
 
 /**
@@ -27,8 +29,8 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
     const c = controllerRef.current
 
     if (!c.initialized) {
-      // Refreshing mid-page must resolve straight to the right state rather
-      // than animating up from zero.
+      // The first frame resolves straight to the current state rather than
+      // animating up from zero.
       c.progress = c.target
       c.pointer.x = c.pointerTarget.x
       c.pointer.y = c.pointerTarget.y
@@ -56,18 +58,27 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
 }
 
 /**
- * Places the prism in the hero composition and keeps the DOM copy in step.
+ * Moves the prism through the hero along the storyboard path and keeps every
+ * DOM layer in step with it: copy drift, stats, and the background glow.
  *
  * Framing uses a lens shift (camera.setViewOffset) rather than moving the
  * prism sideways. The camera keeps looking straight at the prism, so it is
- * shaded and foreshortened exactly as it was tuned against demo.mp4 wherever
- * the layout puts it; an off-axis prism would sample a different part of the
- * matcap and read darker.
+ * shaded and foreshortened the same wherever the path takes it; an off-axis
+ * prism would sample a different part of the matcap and read darker.
  *
- * Copy opacity is written here, from the same damped progress the prism uses,
- * so text and prism can never drift apart.
+ * All DOM writes happen here, from the same damped progress the prism uses,
+ * so the page layers can never drift apart from the 3D scene.
  */
-function StageRig({ controllerRef, contentRefs, reducedMotion }) {
+function StageRig({
+  controllerRef,
+  copyRef,
+  statsRef,
+  glowRef,
+  poolRef,
+  auraRef,
+  composition,
+  reducedMotion,
+}) {
   const frame = useRef({ cx: 0.5, cy: 0.5, fraction: 0.5 })
   const applied = useRef({
     ready: false,
@@ -75,12 +86,17 @@ function StageRig({ controllerRef, contentRefs, reducedMotion }) {
     height: 0,
     offsetX: 0,
     offsetY: 0,
-    visibility: -1,
+    drift: NaN,
+    stats: -1,
+    glow: '',
+    pool: '',
+    aura: '',
   })
 
-  useFrame(({ camera, size }) => {
+  useFrame(({ camera, size, clock }) => {
     const c = controllerRef.current
     const a = applied.current
+    const p = c.progress
 
     if (!a.ready) {
       camera.position.set(0, CAMERA.y, CAMERA.z)
@@ -91,12 +107,16 @@ function StageRig({ controllerRef, contentRefs, reducedMotion }) {
       a.ready = true
     }
 
-    const f = framePrism(getFocus(c.progress), c.layout, frame.current)
+    const f = framePrism(p, c.layout, composition.explodeScale, frame.current)
+
+    // Storyboard: "subtle floating motion".
+    const cy = f.cy + (reducedMotion ? 0 : Math.sin(clock.elapsedTime * 0.9) * 0.006)
+
     c.stage.scale = scaleForFraction(f.fraction)
 
     // The silhouette's visual centre sits a little below the pivot, because
     // the front base corner dips toward the camera.
-    const pivotY = f.cy - SILHOUETTE_DROP * f.fraction
+    const pivotY = cy - SILHOUETTE_DROP * f.fraction
     const offsetX = -(f.cx - 0.5) * size.width
     const offsetY = -(pivotY - 0.5) * size.height
 
@@ -121,18 +141,64 @@ function StageRig({ controllerRef, contentRefs, reducedMotion }) {
       a.offsetY = offsetY
     }
 
-    const visibility = getContentVisibility(c.progress)
-    if (Math.abs(visibility - a.visibility) > 0.002) {
-      a.visibility = visibility
-      const lift = reducedMotion ? 0 : (1 - visibility) * -20
+    // ── Copy: always readable, drifting up slightly (text parallax) ────────
+    const copy = copyRef.current
+    const drift = reducedMotion ? 0 : copyDrift(p)
+    if (copy && Math.abs(drift - a.drift) > 0.1) {
+      copy.style.transform = drift ? `translate3d(0, ${drift.toFixed(1)}px, 0)` : ''
+      a.drift = drift
+    }
 
-      for (const ref of contentRefs) {
-        const el = ref.current
-        if (!el) continue
-        el.style.opacity = visibility.toFixed(3)
-        el.style.transform = lift ? `translate3d(0, ${lift.toFixed(1)}px, 0)` : ''
-        // Faded-out copy leaves the tab order and cannot be clicked.
-        el.style.visibility = visibility < 0.01 ? 'hidden' : ''
+    // ── Stats: clear on wide layouts, where the prism's path crosses them ──
+    const stats = statsRef.current
+    const statsOpacity = c.layout.stacked ? 1 : statsVisibility(p)
+    if (stats && Math.abs(statsOpacity - a.stats) > 0.002) {
+      stats.style.opacity = statsOpacity.toFixed(3)
+      // Cleared stats leave the tab order and the accessibility tree.
+      stats.style.visibility = statsOpacity < 0.01 ? 'hidden' : ''
+      a.stats = statsOpacity
+    }
+
+    // ── Background glow, light pool and aura follow the prism ─────────────
+    // The glow sits behind the prism's centre and the pool under its base;
+    // the aura moves at a third of the prism's travel (background parallax).
+    const px = f.cx * size.width
+    const py = cy * size.height
+    const ph = f.fraction * size.height
+    const intensity = glowIntensity(p)
+
+    const glow = glowRef.current
+    if (glow) {
+      const next = `translate3d(${(px - 50).toFixed(1)}px, ${(py - 50).toFixed(1)}px, 0) scale(${((ph * 1.35) / 100).toFixed(3)})|${(intensity * 0.9).toFixed(3)}`
+      if (next !== a.glow) {
+        const [transform, opacity] = next.split('|')
+        glow.style.transform = transform
+        glow.style.opacity = opacity
+        a.glow = next
+      }
+    }
+
+    const pool = poolRef.current
+    if (pool) {
+      const next = `translate3d(${(px - 50).toFixed(1)}px, ${(py + ph * 0.46 - 50).toFixed(1)}px, 0) scale(${((ph * 1.1) / 100).toFixed(3)}, ${((ph * 0.28) / 100).toFixed(3)})|${(intensity * 0.8).toFixed(3)}`
+      if (next !== a.pool) {
+        const [transform, opacity] = next.split('|')
+        pool.style.transform = transform
+        pool.style.opacity = opacity
+        a.pool = next
+      }
+    }
+
+    const aura = auraRef.current
+    if (aura) {
+      const ax = (f.cx - c.layout.slotX) * size.width * 0.35
+      const ay = (f.cy - c.layout.slotY) * size.height * 0.35 - p * size.height * 0.04
+      const next = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0)|${(0.65 + intensity * 0.35).toFixed(3)}`
+      if (next !== a.aura) {
+        const [transform, opacity] = next.split('|')
+        aura.style.transform = transform
+        aura.style.opacity = opacity
+        a.aura = next
       }
     }
   })
@@ -140,7 +206,12 @@ function StageRig({ controllerRef, contentRefs, reducedMotion }) {
   return null
 }
 
-function SceneContents({ controllerRef, contentRefs, reducedMotion }) {
+/*
+ * The page-layer refs travel as individual `*Ref` props rather than one object:
+ * React's compiler only treats a value as a mutable ref when it is passed as a
+ * ref, and the frame loop has to write their styles.
+ */
+function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
   const width = useThree((state) => state.size.width)
   const composition = useMemo(() => getComposition(width), [width])
 
@@ -149,7 +220,8 @@ function SceneContents({ controllerRef, contentRefs, reducedMotion }) {
       <ProgressDriver controllerRef={controllerRef} reducedMotion={reducedMotion} />
       <StageRig
         controllerRef={controllerRef}
-        contentRefs={contentRefs}
+        {...layerRefs}
+        composition={composition}
         reducedMotion={reducedMotion}
       />
       <PrismObject
@@ -157,16 +229,16 @@ function SceneContents({ controllerRef, contentRefs, reducedMotion }) {
         composition={composition}
         reducedMotion={reducedMotion}
       />
+      <AmbientField controllerRef={controllerRef} reducedMotion={reducedMotion} />
     </>
   )
 }
 
 /**
- * Transparent canvas: the hero's background and grid are DOM, so the prism
- * sits on the design's own ground and crosses its grid lines as in the design.
- * The matcap needs no lights.
+ * Transparent canvas: the hero's background, glow and copy are DOM, so the
+ * prism sits on the page's own ground between them. The matcap needs no lights.
  */
-export default function PrismCanvas({ controllerRef, contentRefs, reducedMotion }) {
+export default function PrismCanvas({ controllerRef, reducedMotion, ...layerRefs }) {
   return (
     <Canvas
       camera={{
@@ -187,8 +259,8 @@ export default function PrismCanvas({ controllerRef, contentRefs, reducedMotion 
     >
       <SceneContents
         controllerRef={controllerRef}
-        contentRefs={contentRefs}
         reducedMotion={reducedMotion}
+        {...layerRefs}
       />
     </Canvas>
   )

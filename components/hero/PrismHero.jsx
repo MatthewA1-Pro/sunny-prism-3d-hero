@@ -3,7 +3,6 @@
 import React, {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -21,6 +20,9 @@ if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
   window.history.scrollRestoration = 'manual'
 }
 
+/** Must match the desktop media query in app/globals.css. */
+const DESKTOP_LAYOUT = '(min-width: 1024px) and (min-aspect-ratio: 6/5)'
+
 /**
  * The single mutable animation state for the whole hero.
  *
@@ -37,7 +39,15 @@ function createController() {
     pointer: { x: 0, y: 0 },
     pointerTarget: { x: 0, y: 0 },
     initialized: false,
-    layout: { slotX: 0.72, slotY: 0.6, slotF: 0.5, focusF: 0.6 },
+    layout: {
+      slotX: 0.72,
+      slotY: 0.6,
+      slotF: 0.5,
+      aspect: 1.6,
+      stacked: false,
+      travel: 0.67,
+      maxWidthShare: 0.62,
+    },
     stage: { scale: 0.66 },
   }
 }
@@ -142,8 +152,9 @@ export default function PrismHero() {
   const copyRef = useRef(null)
   const statsRef = useRef(null)
   const hintRef = useRef(null)
-
-  const contentRefs = useMemo(() => [copyRef, statsRef], [])
+  const glowRef = useRef(null)
+  const poolRef = useRef(null)
+  const auraRef = useRef(null)
 
   /** Scroll track extent and the prism slot, both read from layout. */
   const measure = useCallback(() => {
@@ -159,7 +170,11 @@ export default function PrismHero() {
 
     Object.assign(
       controllerRef.current.layout,
-      layoutFromRects(stage.getBoundingClientRect(), slot.getBoundingClientRect())
+      layoutFromRects(
+        stage.getBoundingClientRect(),
+        slot.getBoundingClientRect(),
+        !window.matchMedia(DESKTOP_LAYOUT).matches
+      )
     )
   }, [])
 
@@ -234,12 +249,23 @@ export default function PrismHero() {
   return (
     <section className="prism-hero" ref={heroRef} aria-labelledby="hero-title">
       <div className="prism-stage" ref={stageRef}>
+        {/* Glow, light pool and aura behind the prism (background parallax). */}
+        <div className="hero-bg" aria-hidden="true">
+          <div className="hero-aura" ref={auraRef} />
+          <div className="hero-glow" ref={glowRef} />
+          <div className="hero-pool" ref={poolRef} />
+        </div>
+
         <div className="hero-webgl" aria-hidden="true">
           {webgl === true && !canvasFailed ? (
             <CanvasErrorBoundary onError={onCanvasError}>
               <PrismCanvas
                 controllerRef={controllerRef}
-                contentRefs={contentRefs}
+                copyRef={copyRef}
+              statsRef={statsRef}
+              glowRef={glowRef}
+              poolRef={poolRef}
+              auraRef={auraRef}
                 reducedMotion={reducedMotion}
               />
             </CanvasErrorBoundary>
