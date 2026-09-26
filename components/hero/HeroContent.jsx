@@ -20,11 +20,10 @@ function ArrowRight() {
 }
 
 /**
- * `slot` marks where the prism sits in the layout; PrismHero measures it and
- * frames the WebGL prism onto it. `copyRef` and `statsRef` are faded by the
- * animation loop so the copy and the prism stay in step.
+ * The hero chapter's content. Where the prism sits beside it is the chapter's
+ * own CSS anchor (--px / --py / --ph), read by PrismStory.
  */
-export default function HeroContent({ copyRef, statsRef, slot, scrollHint }) {
+export default function HeroContent({ scrollHint }) {
   const { eyebrow, title, body, cta, stats } = heroContent
 
   const ctaInner = (
@@ -36,7 +35,7 @@ export default function HeroContent({ copyRef, statsRef, slot, scrollHint }) {
 
   return (
     <div className="hero-ui">
-      <div className="hero-copy" ref={copyRef}>
+      <div className="hero-copy">
         <p className="hero-eyebrow">{eyebrow}</p>
         <h1 id="hero-title" className="hero-title">
           {title.map((line, i) => (
@@ -64,9 +63,7 @@ export default function HeroContent({ copyRef, statsRef, slot, scrollHint }) {
         </div>
       </div>
 
-      {slot}
-
-      <ul className="hero-stats" ref={statsRef}>
+      <ul className="hero-stats">
         {stats.map((stat) => (
           <li key={stat.value} className="hero-stat">
             <span className="hero-stat-value">{stat.value}</span>

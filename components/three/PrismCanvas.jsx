@@ -5,16 +5,16 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 
 import PrismObject from './PrismObject'
 import AmbientField from './AmbientField'
+import GroundGrid from './GroundGrid'
 import {
   CAMERA,
   SILHOUETTE_DROP,
-  copyDrift,
+  chapterUnits,
   damp,
-  framePrism,
+  frameAt,
   getComposition,
   glowIntensity,
   scaleForFraction,
-  statsVisibility,
 } from '@/lib/timeline'
 
 /**
@@ -47,8 +47,7 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
 
     // The only smoothing stage for scroll: lambda 10 closes 63% of the gap in
     // 0.1 s, enough to absorb wheel steps without the prism trailing the
-    // scroll. Nothing downstream smooths progress again. damp() makes it
-    // frame-rate independent.
+    // scroll. Nothing downstream smooths progress again.
     c.progress = damp(c.progress, c.target, 10, dt)
     c.pointer.x = damp(c.pointer.x, c.pointerTarget.x, 3.5, dt)
     c.pointer.y = damp(c.pointer.y, c.pointerTarget.y, 3.5, dt)
@@ -58,27 +57,15 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
 }
 
 /**
- * Moves the prism through the hero along the storyboard path and keeps every
- * DOM layer in step with it: copy drift, stats, and the background glow.
+ * Places the prism at the current chapter's anchor and keeps the background
+ * light in step with it.
  *
  * Framing uses a lens shift (camera.setViewOffset) rather than moving the
  * prism sideways. The camera keeps looking straight at the prism, so it is
- * shaded and foreshortened the same wherever the path takes it; an off-axis
+ * shaded and foreshortened the same wherever the chapters put it; an off-axis
  * prism would sample a different part of the matcap and read darker.
- *
- * All DOM writes happen here, from the same damped progress the prism uses,
- * so the page layers can never drift apart from the 3D scene.
  */
-function StageRig({
-  controllerRef,
-  copyRef,
-  statsRef,
-  glowRef,
-  poolRef,
-  auraRef,
-  composition,
-  reducedMotion,
-}) {
+function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reducedMotion }) {
   const frame = useRef({ cx: 0.5, cy: 0.5, fraction: 0.5 })
   const applied = useRef({
     ready: false,
@@ -86,8 +73,6 @@ function StageRig({
     height: 0,
     offsetX: 0,
     offsetY: 0,
-    drift: NaN,
-    stats: -1,
     glow: '',
     pool: '',
     aura: '',
@@ -96,7 +81,10 @@ function StageRig({
   useFrame(({ camera, size, clock }) => {
     const c = controllerRef.current
     const a = applied.current
-    const p = c.progress
+
+    // Chapter units drive every stage; the prism and grid read them back.
+    const s = chapterUnits(c.progress)
+    c.stage.units = s
 
     if (!a.ready) {
       camera.position.set(0, CAMERA.y, CAMERA.z)
@@ -107,7 +95,7 @@ function StageRig({
       a.ready = true
     }
 
-    const f = framePrism(p, c.layout, composition.explodeScale, frame.current)
+    const f = frameAt(s, c.layout, composition.explodeScale, frame.current)
 
     // Storyboard: "subtle floating motion".
     const cy = f.cy + (reducedMotion ? 0 : Math.sin(clock.elapsedTime * 0.9) * 0.006)
@@ -141,31 +129,11 @@ function StageRig({
       a.offsetY = offsetY
     }
 
-    // ── Copy: always readable, drifting up slightly (text parallax) ────────
-    const copy = copyRef.current
-    const drift = reducedMotion ? 0 : copyDrift(p)
-    if (copy && Math.abs(drift - a.drift) > 0.1) {
-      copy.style.transform = drift ? `translate3d(0, ${drift.toFixed(1)}px, 0)` : ''
-      a.drift = drift
-    }
-
-    // ── Stats: clear on wide layouts, where the prism's path crosses them ──
-    const stats = statsRef.current
-    const statsOpacity = c.layout.stacked ? 1 : statsVisibility(p)
-    if (stats && Math.abs(statsOpacity - a.stats) > 0.002) {
-      stats.style.opacity = statsOpacity.toFixed(3)
-      // Cleared stats leave the tab order and the accessibility tree.
-      stats.style.visibility = statsOpacity < 0.01 ? 'hidden' : ''
-      a.stats = statsOpacity
-    }
-
     // ── Background glow, light pool and aura follow the prism ─────────────
-    // The glow sits behind the prism's centre and the pool under its base;
-    // the aura moves at a third of the prism's travel (background parallax).
     const px = f.cx * size.width
     const py = cy * size.height
     const ph = f.fraction * size.height
-    const intensity = glowIntensity(p)
+    const intensity = glowIntensity(s)
 
     const glow = glowRef.current
     if (glow) {
@@ -191,9 +159,9 @@ function StageRig({
 
     const aura = auraRef.current
     if (aura) {
-      const ax = (f.cx - c.layout.slotX) * size.width * 0.35
-      const ay = (f.cy - c.layout.slotY) * size.height * 0.35 - p * size.height * 0.04
-      const next = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0)|${(0.65 + intensity * 0.35).toFixed(3)}`
+      const ax = (f.cx - 0.5) * size.width * 0.35
+      const ay = (f.cy - 0.5) * size.height * 0.35
+      const next = `translate3d(${ax.toFixed(1)}px, ${ay.toFixed(1)}px, 0)|${(0.6 + intensity * 0.4).toFixed(3)}`
       if (next !== a.aura) {
         const [transform, opacity] = next.split('|')
         aura.style.transform = transform
@@ -224,6 +192,7 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
         composition={composition}
         reducedMotion={reducedMotion}
       />
+      <GroundGrid controllerRef={controllerRef} />
       <PrismObject
         controllerRef={controllerRef}
         composition={composition}
@@ -235,8 +204,9 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
 }
 
 /**
- * Transparent canvas: the hero's background, glow and copy are DOM, so the
- * prism sits on the page's own ground between them. The matcap needs no lights.
+ * Transparent canvas, fixed behind the scrolling chapters: the page's
+ * background, glow and copy are DOM, so the prism sits between them.
+ * The matcap needs no lights.
  */
 export default function PrismCanvas({ controllerRef, reducedMotion, ...layerRefs }) {
   return (

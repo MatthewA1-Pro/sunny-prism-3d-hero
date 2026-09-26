@@ -222,8 +222,9 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
   useFrame((state) => {
     const controller = controllerRef.current
-    const p = controller.progress
-    const s = getStages(p)
+    // Chapter units (see lib/timeline.js): the rig writes them each frame.
+    const units = controller.stage.units
+    const s = getStages(units)
     const time = state.clock.elapsedTime
 
     const idle = reducedMotion ? 0 : 1
@@ -242,13 +243,13 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       const sway = (1 - easeInOutSine(s.section) * 0.75) * idle
 
       groupRef.current.rotation.y =
-        prismYaw(p) +
+        prismYaw(units) +
         (controller.pointer.x * 0.04 * composition.pointerStrength +
           Math.sin(time * 0.18) * 0.03) *
           sway
 
       groupRef.current.rotation.x =
-        prismPitch(p) +
+        prismPitch(units) +
         (controller.pointer.y * 0.025 * composition.pointerStrength +
           Math.sin(time * 0.24) * 0.01) *
           sway
@@ -275,15 +276,19 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       (1 - easeInOutSine(range(sweepT, 0.82, 1)))
 
     // ── Cross-section through every piece (shapes.pptx `image2.gif`) ────────
-    // A horizontal plane rises from the base to the apex. At height y the
-    // pyramid's section is the square |x|, |z| <= h with h = (1 - y) / 2, and
-    // slice i keeps the part where kLow <= 2x + y <= kHigh: an exact rectangle
-    // per piece, drawn in the piece's own frame so it travels with it.
-    const sectionIn = easeOutCubic(range(s.section, 0, 0.15))
+    // A horizontal plane travels from the APEX DOWN TO THE BASE, so the
+    // section grows from the smallest to the largest — the direction Sunny
+    // describes ("this point is the smallest one, this big one is the
+    // largest"). At height y the pyramid's section is the square |x|, |z| <= h
+    // with h = (1 - y) / 2, and slice i keeps the part where
+    // kLow <= 2x + y <= kHigh: an exact rectangle per piece, drawn in the
+    // piece's own frame so it travels with it.
+    const sectionIn = easeOutCubic(range(s.section, 0, 0.12))
     const scanT = easeInOutSine(s.section)
-    const scanY = lerp(-0.96, 0.96, scanT)
+    const scanY = lerp(0.96, -0.96, scanT)
     const half = sectionHalfExtent(scanY)
-    const planeFade = sectionIn * (1 - easeInOutSine(range(scanT, 0.85, 1)))
+    // Held through the sweep, then cleared as the cutting chapter starts.
+    const planeFade = sectionIn * (1 - easeInOutSine(range(units, 1.92, 2.12)))
 
     // ── Structural slices ───────────────────────────────────────────────────
     const edgeDim = lerp(1, EDGE_SETTLED, settleAmount)

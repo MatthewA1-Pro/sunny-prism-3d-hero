@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Hero design tokens, sampled from Sunny's design reference
+ * Design tokens, sampled from Sunny's design reference
  * (references/screenshots/pptx/image1.png, 1761px wide).
  */
 :root {
@@ -15,8 +15,7 @@
 }
 
 /* The background is painted by CSS before WebGL initialises, so there is never
-   a white first paint. `clip` (not `hidden`) so no scroll container is created
-   and the sticky hero stage keeps working. */
+   a white first paint. */
 html,
 body {
   width: 100%;
@@ -40,46 +39,45 @@ body {
   background: var(--bg);
 }
 
-/* ── Stage ─────────────────────────────────────────────────────────────────
-   A sticky full-viewport stage over a scroll track: the hero stays on screen
-   while the scroll progress drives the prism. */
-
-/* 220vh of scroll: the storyboard's few seconds of continuous motion at a
-   normal scrolling pace. */
-.prism-hero {
-  position: relative;
-  height: calc(100vh + 220vh);
-  height: calc(100svh + 220vh);
-}
+/* ── Fixed stage ───────────────────────────────────────────────────────────
+   The prism and its light stay on screen while the chapters scroll over them.
+   Each chapter says where the prism should sit (--px / --py / --ph). */
 
 .prism-stage {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  height: 100svh;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   overflow: hidden;
   background: var(--bg);
   container-type: inline-size;
   --col: calc(100cqw / 11);
-  --foot-h: min(var(--col), 16svh);
 }
 
 .hero-bg,
-.hero-webgl,
-.hero-ui {
+.hero-webgl {
   position: absolute;
   inset: 0;
 }
-
-/* ── Background light (behind the canvas) ───────────────────────────────────
-   Positioned every frame by the prism rig with transform/opacity only, so
-   moving them never triggers layout. Each is a 100px box scaled to size. */
 
 .hero-bg {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
 }
+
+/* pan-y lets a touch drag scroll the page straight through the canvas. */
+.hero-webgl {
+  z-index: 1;
+  touch-action: pan-y;
+}
+
+.hero-webgl canvas {
+  display: block;
+  touch-action: pan-y;
+}
+
+/* Background light, positioned every frame by the prism rig with
+   transform/opacity only. Each is a 100px box scaled to size. */
 
 .hero-aura {
   position: absolute;
@@ -122,39 +120,109 @@ body {
   );
 }
 
-/* pan-y lets a touch drag scroll the page straight through the canvas. */
-.hero-webgl {
-  z-index: 1;
-  touch-action: pan-y;
-}
+/* ── Chapters ──────────────────────────────────────────────────────────────
+   Each chapter is one viewport tall and scrolls over the fixed stage. Its
+   --px / --py / --ph are the prism's place and height while it is on screen,
+   as percentages of the stage. */
 
-.hero-webgl canvas {
-  display: block;
-  touch-action: pan-y;
-}
-
-.hero-ui {
+.chapters {
+  position: relative;
   z-index: 2;
   pointer-events: none;
 }
 
-.hero-ui a,
-.hero-ui button {
+.chapters a,
+.chapters button {
   pointer-events: auto;
 }
 
-/* ── Phones and portrait tablets (default): stacked composition ─────────── */
+.chapter {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  align-items: flex-start;
+  padding: max(40px, env(safe-area-inset-top)) var(--pad)
+    max(16px, env(safe-area-inset-bottom));
+  /* Stacked defaults: prism below the copy, centred. */
+  --px: 50;
+  --py: 62;
+  --ph: 32;
+}
+
+.chapter-hero {
+  padding: 0;
+  --px: 50;
+  --py: 62;
+  --ph: 32;
+}
+
+.chapter-grid {
+  --py: 56;
+  --ph: 24;
+}
+
+.chapter-shadow,
+.chapter-ribbons {
+  --py: 56;
+  --ph: 26;
+}
+
+.chapter-sliver {
+  --py: 56;
+  --ph: 28;
+}
+
+.chapter-copy {
+  max-width: 34ch;
+}
+
+.chapter-right .chapter-copy {
+  margin-left: auto;
+}
+
+.chapter-eyebrow {
+  width: fit-content;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.chapter-title {
+  margin: 0 0 12px;
+  font-size: clamp(24px, 6vw, 38px);
+  line-height: 1.16;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.chapter-body {
+  margin: 0;
+  font-size: clamp(14px, 3.6vw, 17px);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ── Hero chapter ──────────────────────────────────────────────────────── */
 
 .hero-ui {
+  position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-height: 100svh;
   padding: max(40px, env(safe-area-inset-top)) var(--pad)
     max(10px, env(safe-area-inset-bottom));
 }
 
 .hero-copy {
   flex: 0 0 auto;
-  will-change: opacity, transform;
 }
 
 .hero-eyebrow {
@@ -236,26 +304,14 @@ body {
   stroke-linejoin: round;
 }
 
-/* Where the WebGL prism is framed. On phones it takes whatever height the copy
-   and stats leave, so the two can never collide. */
-.prism-slot {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .hero-stats {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin: 8px 0 0;
+  margin: auto 0 0;
   padding: 0;
   list-style: none;
-  will-change: opacity, transform;
 }
 
 .hero-stat {
@@ -309,7 +365,6 @@ body {
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: rgba(200, 188, 255, 0.9);
-  /* Opacity is driven from the scroll listener; the pulse rides on top. */
   will-change: opacity;
   animation: hintPulse 2s ease-in-out infinite;
 }
@@ -342,20 +397,92 @@ body {
   }
 }
 
-/* ── Desktop and landscape tablets: the design's column layout ──────────────
-   Sizes scale with the stage width (cqw) as in the design, and are also
-   capped by the viewport height (svh), so a short browser window shrinks the
-   copy and stats instead of letting them run into each other. */
+/* ── Desktop and landscape tablets ─────────────────────────────────────────
+   The hero keeps the design's column layout; later chapters put their copy on
+   one side and the prism on the other. Type is capped by viewport height as
+   well as width, so short windows shrink the text instead of overlapping. */
 
 @media (min-width: 1024px) and (min-aspect-ratio: 6/5) {
+  .chapter {
+    align-items: center;
+  }
+
+  .chapter-copy {
+    max-width: 38ch;
+    padding-left: calc(var(--col) * 0.49);
+  }
+
+  .chapter-right .chapter-copy {
+    padding-right: calc(var(--col) * 0.49);
+    padding-left: 0;
+  }
+
+  .chapter-eyebrow {
+    font-size: clamp(11px, 0.85cqw, 16px);
+  }
+
+  .chapter-title {
+    font-size: clamp(26px, min(2.6cqw, 5.6svh), 48px);
+  }
+
+  .chapter-body {
+    font-size: clamp(13px, min(1.08cqw, 2.5svh), 20px);
+    line-height: 1.75;
+  }
+
+  /* Prism anchors, chapter by chapter (see lib/chapters.js). */
+
+  .chapter-hero {
+    --px: 72;
+    --py: 60;
+    --ph: 58;
+  }
+
+  .chapter-section {
+    --px: 68;
+    --py: 52;
+    --ph: 56;
+  }
+
+  .chapter-cut {
+    --px: 62;
+    --py: 52;
+    --ph: 60;
+  }
+
+  /* Zoomed out: the prism is small and central so the grid reads. */
+  .chapter-grid {
+    --px: 50;
+    --py: 48;
+    --ph: 34;
+  }
+
+  .chapter-shadow {
+    --px: 58;
+    --py: 44;
+    --ph: 42;
+  }
+
+  .chapter-ribbons {
+    --px: 60;
+    --py: 44;
+    --ph: 40;
+  }
+
+  .chapter-sliver {
+    --px: 52;
+    --py: 46;
+    --ph: 44;
+  }
+
+  /* Hero chapter layout: the design's column grid. */
+
   .hero-ui {
     display: grid;
     grid-template-columns: repeat(11, minmax(0, 1fr));
-    grid-template-rows: minmax(0, 1fr) var(--foot-h);
+    grid-template-rows: minmax(0, 1fr) min(var(--col), 16svh);
     padding: 0;
   }
-
-  /* Copy: design column 2 onward, vertically centred above the foot. */
 
   .hero-copy {
     grid-column: 2 / 9;
@@ -396,21 +523,6 @@ body {
     font-size: clamp(14px, 1.02cqw, 19px);
   }
 
-  /* The prism's place in the design: right of the copy, reaching down into
-     the foot of the stage. Its height is the prism plus breathing room. */
-
-  .prism-slot {
-    position: absolute;
-    left: 72%;
-    top: 60%;
-    width: 1px;
-    height: 64%;
-    flex: none;
-    transform: translate(-50%, -50%);
-  }
-
-  /* Stats: design columns 10-11. */
-
   .hero-stats {
     grid-column: 10 / 12;
     grid-row: 1;
@@ -447,11 +559,16 @@ body {
   }
 }
 
-/* ── WebGL fallback ────────────────────────────────────────────────────── */
+/* ── WebGL fallback ────────────────────────────────────────────────────────
+   Drawn in the fixed stage at the hero's anchor. */
 
 .webgl-fallback {
-  height: 90%;
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  height: 32%;
   aspect-ratio: 0.83;
+  transform: translate(-50%, -50%);
   clip-path: polygon(50% 0%, 100% 90%, 47% 100%, 0% 88%);
   background: linear-gradient(
     160deg,
@@ -465,10 +582,9 @@ body {
 
 @media (min-width: 1024px) and (min-aspect-ratio: 6/5) {
   .webgl-fallback {
-    position: absolute;
-    top: 5%;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 72%;
+    top: 60%;
+    height: 58%;
   }
 }
 
