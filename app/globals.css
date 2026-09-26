@@ -120,6 +120,33 @@ body {
   );
 }
 
+/* ── Band labels ───────────────────────────────────────────────────────────
+   Page text, not sprites, so it stays crisp at any zoom. ShadowBands positions
+   each label over its band every frame with transform and opacity only; above
+   the canvas, below the chapter copy. */
+
+.band-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.band-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  font-size: clamp(9px, 0.78cqw, 13px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: rgba(226, 219, 255, 0.92);
+  text-shadow: 0 1px 10px rgba(12, 2, 30, 0.85);
+  will-change: transform, opacity;
+}
+
 /* ── Chapters ──────────────────────────────────────────────────────────────
    Each chapter is one viewport tall and scrolls over the fixed stage. Its
    --px / --py / --ph are the prism's place and height while it is on screen,
@@ -162,15 +189,27 @@ body {
   --ph: 24;
 }
 
+/* The shadow reaches to the right of the prism, and the second triangle
+   further still, so the prism itself sits left of centre here. */
 .chapter-shadow,
 .chapter-ribbons {
-  --py: 56;
-  --ph: 26;
+  --px: 40;
+  --py: 58;
+  --ph: 22;
 }
 
+/* The ribbon stack and its label column are wider than the prism, so on narrow
+   screens the pivot moves left and the solid shrinks. */
 .chapter-sliver {
+  --px: 40;
   --py: 56;
-  --ph: 28;
+  --ph: 24;
+}
+
+/* Scroll length for the last chapter's stage; carries no anchor of its own. */
+.chapter-tail {
+  min-height: 100vh;
+  min-height: 100svh;
 }
 
 .chapter-copy {
@@ -457,22 +496,26 @@ body {
     --ph: 34;
   }
 
+  /* The cast shadow runs right and back from the prism, so the solid moves
+     left of the copy's column to leave the shadow its room. */
   .chapter-shadow {
-    --px: 58;
-    --py: 44;
-    --ph: 42;
-  }
-
-  .chapter-ribbons {
-    --px: 60;
-    --py: 44;
-    --ph: 40;
-  }
-
-  .chapter-sliver {
     --px: 52;
+    --py: 44;
+    --ph: 38;
+  }
+
+  /* The second triangle comes in from further right again. */
+  .chapter-ribbons {
+    --px: 36;
     --py: 46;
-    --ph: 44;
+    --ph: 36;
+  }
+
+  /* The ribbon stack and its labels are centred on the prism's pivot. */
+  .chapter-sliver {
+    --px: 56;
+    --py: 48;
+    --ph: 40;
   }
 
   /* Hero chapter layout: the design's column grid. */

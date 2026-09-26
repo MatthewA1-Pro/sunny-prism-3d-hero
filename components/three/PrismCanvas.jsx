@@ -6,6 +6,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import PrismObject from './PrismObject'
 import AmbientField from './AmbientField'
 import GroundGrid from './GroundGrid'
+import ShadowBands from './ShadowBands'
 import {
   CAMERA,
   SILHOUETTE_DROP,
@@ -193,6 +194,7 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
         reducedMotion={reducedMotion}
       />
       <GroundGrid controllerRef={controllerRef} />
+      <ShadowBands controllerRef={controllerRef} />
       <PrismObject
         controllerRef={controllerRef}
         composition={composition}

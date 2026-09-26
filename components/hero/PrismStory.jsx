@@ -12,7 +12,7 @@ import PrismCanvas from '@/components/three/PrismCanvas'
 import HeroContent from './HeroContent'
 import ChapterText from './ChapterText'
 import ScrollHint from './ScrollHint'
-import { chapters } from '@/lib/chapters'
+import { bandLabels, chapters } from '@/lib/chapters'
 import { clamp01 } from '@/lib/timeline'
 
 // The page always opens on the hero, as the buyer's original source did with
@@ -274,6 +274,18 @@ export default function PrismStory() {
           ) : null}
         </div>
 
+        {/* Labels for the shadow's bands and the ribbons they become. The
+            frame loop finds them by their data attribute and positions each one
+            over its band; the chapter copy carries the same meaning for
+            assistive technology, so they are decorative here. */}
+        <div className="band-labels">
+          {bandLabels.map((label) => (
+            <span key={label} className="band-label" data-band-label>
+              {label}
+            </span>
+          ))}
+        </div>
+
         {showFallback ? (
           <div className="webgl-fallback" role="img" aria-label="Prism" />
         ) : null}
@@ -287,6 +299,11 @@ export default function PrismStory() {
         {chapters.slice(1).map((chapter, i) => (
           <ChapterText key={chapter.id} chapter={chapter} index={i + 1} />
         ))}
+
+        {/* One viewport of tail, so the last chapter has scroll length of its
+            own to play its stage in (see chapterUnits in lib/timeline.js). It
+            is not a `.chapter`, so it contributes no anchor. */}
+        <div className="chapter-tail" aria-hidden="true" />
       </div>
     </>
   )

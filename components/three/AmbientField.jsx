@@ -95,7 +95,8 @@ export default function AmbientField({ controllerRef, reducedMotion }) {
   useFrame((state) => {
     const controller = controllerRef.current
     const time = reducedMotion ? 0 : state.clock.elapsedTime
-    const level = ambientLevel(controller.progress)
+    // Chapter units, the same clock every other stage reads.
+    const level = ambientLevel(controller.stage.units)
 
     // Uniform scale that follows the prism's size (the prism's own vertical
     // stretch is not applied, so the rings stay round).
