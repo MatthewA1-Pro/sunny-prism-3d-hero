@@ -54,7 +54,9 @@ const state = await page.evaluate(() => ({
   copyOpacity: document.querySelector('.hero-copy')
     ? getComputedStyle(document.querySelector('.hero-copy')).opacity
     : null,
-  fallback: Boolean(document.querySelector('.prism-slot .webgl-fallback')),
+  // The fallback lives in the fixed stage now that the hero is a scroll story
+  // (it was `.prism-slot` when the prism sat in the hero's grid).
+  fallback: Boolean(document.querySelector('.prism-stage .webgl-fallback')),
   canvas: Boolean(document.querySelector('canvas')),
   background: getComputedStyle(document.body).backgroundColor,
 }))
