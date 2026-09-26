@@ -96,6 +96,11 @@ const SHADOW_Z = 0.25
 const UPRIGHT_X = 2.05
 const UPRIGHT_Y = -0.3
 const UPRIGHT_Z = 0.85
+
+/* On a stacked layout there is no column of copy to clear, and far less width
+ * to spend: the diagram sits closer in, so the triangle and its labels stay on
+ * screen at phone widths. */
+const UPRIGHT_X_NARROW = 1.2
 /*
  * How the bands come apart, mirroring EXPLODE for the solid: `gap` across the
  * cuts (so each cut opens into a visible gap) and `slide` along them (which
@@ -108,6 +113,7 @@ const BAND_SLIDE = 0.05
 const BAND_CENTRE_Y = [-0.125, -0.375, -0.625, -0.875]
 /** Label column for the upright diagram, right of the triangle. */
 const DIAGRAM_LABEL_X = 1.5
+const DIAGRAM_LABEL_X_NARROW = 1.15
 /** How much the label column is spread relative to the bands themselves. */
 const DIAGRAM_LABEL_SPREAD = 1.6
 /*
@@ -220,6 +226,11 @@ export default function ShadowBands({ controllerRef }) {
     const units = controller.stage.units
     const stage = getStages(units)
 
+    // Narrow layouts bring the upright diagram in closer (see UPRIGHT_X_NARROW).
+    const narrow = controller.layout.stacked
+    const uprightX = narrow ? UPRIGHT_X_NARROW : UPRIGHT_X
+    const labelX = narrow ? DIAGRAM_LABEL_X_NARROW : DIAGRAM_LABEL_X
+
     const shadowIn = easeOutCubic(stage.shadow)
     const gap = easeInOutSine(stage.bands)
     const toSliver = easeInOutSine(stage.sliver)
@@ -295,7 +306,7 @@ export default function ShadowBands({ controllerRef }) {
         // base mid-line) as the sliver.
         const aside = 1 - toSliver
         scratch.upright.set(
-          x + UPRIGHT_X * aside,
+          x + uprightX * aside,
           y + UPRIGHT_Y * aside,
           0.06 + UPRIGHT_Z * aside
         )
@@ -372,7 +383,7 @@ export default function ShadowBands({ controllerRef }) {
       if (standUp > 0 && toRibbons < 1) {
         const aside = 1 - toSliver
         scratch.labelTarget.set(
-          UPRIGHT_X * aside + DIAGRAM_LABEL_X,
+          uprightX * aside + labelX,
           BAND_CENTRE_Y[i] * DIAGRAM_LABEL_SPREAD + UPRIGHT_Y * aside,
           0.06 + UPRIGHT_Z * aside
         )
