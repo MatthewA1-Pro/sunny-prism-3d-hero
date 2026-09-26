@@ -69,22 +69,54 @@ const BANDS = [
 
 /** The grid's plane, so the shadow lies on the same surface (GroundGrid.GRID_Y). */
 const GROUND = -1.62
-/** How far the light on the left pushes the shadow across the ground. */
-const LEAN = 0.58
-/** How far the shadow recedes from the camera — what makes it read isometric. */
-const DEPTH = 0.78
-/** Pulls the shadow's near edge clear of the prism's base. */
-const SHADOW_Z = 0.28
+/*
+ * How far the light on the left throws the shadow across the ground. It is low,
+ * so the triangle reaches clear of the opened solid instead of lying under it.
+ */
+const LEAN = 1.45
+/** How far the shadow runs toward the camera — what makes it read isometric. */
+const DEPTH = 0.85
+/**
+ * The shadow's plane is raked toward the viewer by this much. Flat on the
+ * ground it would be seen nearly edge-on and collapse to a line; raked, it
+ * keeps its triangle while still reading as lying away from the light.
+ */
+const LIFT = (12 * Math.PI) / 180
+const LIFT_SIN = Math.sin(LIFT)
+const LIFT_COS = Math.cos(LIFT)
+/** Where the shadow's base edge meets the prism's own base. */
+const SHADOW_Z = 0.25
+
+/*
+ * Where the risen triangle stands while it is being read: beside the prism and
+ * a little toward the viewer, so the labels are clear of the solid. The second
+ * shadow is its mirror, so the pair stands either side of the prism and points
+ * inward, as the two triangles do in `image8.png`.
+ */
+const UPRIGHT_X = 2.05
+const UPRIGHT_Y = -0.3
+const UPRIGHT_Z = 0.85
 /*
  * How the bands come apart, mirroring EXPLODE for the solid: `gap` across the
  * cuts (so each cut opens into a visible gap) and `slide` along them (which
  * staggers the strips, and with them their labels).
  */
-const BAND_GAP = 0.22
-const BAND_SLIDE = 0.3
-/** Where the second triangle waits, and where it comes to rest. */
-const MIRROR_X_FAR = 5.4
-const MIRROR_X_MET = 2.15
+const BAND_GAP = 0.05
+const BAND_SLIDE = 0.05
+
+/** Each band's centre in the silhouette triangle, for placing its label. */
+const BAND_CENTRE_Y = [-0.125, -0.375, -0.625, -0.875]
+/** Label column for the upright diagram, right of the triangle. */
+const DIAGRAM_LABEL_X = 1.5
+/** How much the label column is spread relative to the bands themselves. */
+const DIAGRAM_LABEL_SPREAD = 1.6
+/*
+ * The second shadow — "and then this one, the bottom one, also has a shadow" —
+ * is the same triangle mirrored, thrown the other way. It comes in from off to
+ * the left and settles against the first, the two meeting base to base.
+ */
+const MIRROR_X_FAR = -4.6
+const MIRROR_X_MET = 0
 
 /*
  * Ribbon stack. Each ribbon's width is its band's share of the triangle's area
@@ -100,7 +132,12 @@ const RIBBON_Z = 0.55
 /** Labels line up in a column to the right of the stack. */
 const LABEL_X = RIBBON_X + 2.95
 
-const SHADOW_COLOR = new THREE.Color('#2a1e68')
+/*
+ * A cast shadow on a near-black floor cannot be darker than the floor, so it is
+ * drawn as the light the prism throws rather than the dark it blocks: a violet
+ * plate bright enough to read over the grid, with a lit edge.
+ */
+const SHADOW_COLOR = new THREE.Color('#4b37c4')
 const RIBBON_COLORS = [
   new THREE.Color('#a45cff'),
   new THREE.Color('#7b6bff'),
@@ -188,6 +225,15 @@ export default function ShadowBands({ controllerRef }) {
     const toSliver = easeInOutSine(stage.sliver)
     const toRibbons = easeInOutSine(stage.ribbons)
 
+    /*
+     * Flat on the floor the shadow is a true cast shadow, but at the camera's
+     * angle it is far too shallow to carry four labelled bands. So through
+     * chapter 5 it stands up and faces the viewer as it comes apart — the
+     * readable version of the labelled triangles in `image8.png` — and only
+     * then, in chapter 6, moves into the prism's own centre plane as the sliver.
+     */
+    const standUp = gap
+
     const group = groupRef.current
     const visible = shadowIn > 0.004
     if (group) {
@@ -203,12 +249,14 @@ export default function ShadowBands({ controllerRef }) {
       return
     }
 
+    // The second triangle — "then the bottom one" — belongs to chapter 5: it
+    // fades in as it slides from the right to meet the first, and goes once the
+    // bands leave the ground to become the sliver.
+    const converge = easeInOutSine(stage.converge)
     const mirror = mirrorRef.current
     if (mirror) {
-      // The second triangle slides in from the right and meets the first. It
-      // goes once the bands leave the ground to become the sliver.
-      mirror.position.x = lerp(MIRROR_X_FAR, MIRROR_X_MET, easeInOutSine(stage.converge))
-      mirror.visible = toSliver < 0.5
+      mirror.position.x = lerp(MIRROR_X_FAR, MIRROR_X_MET, converge)
+      mirror.visible = converge > 0.01 && toSliver < 0.5
     }
 
     for (let i = 0; i < BANDS.length; i++) {
@@ -235,14 +283,22 @@ export default function ShadowBands({ controllerRef }) {
           corners[c][1] +
           (NORMAL_Y * BAND_GAP + SLIDE_Y * BAND_SLIDE) * rank * gap
 
-        // A — flat on the grid, sheared away from the light on the left.
+        // A — thrown right and forward by a light behind and to the left, so
+        // the triangle lands on open floor instead of behind the solid.
         scratch.flat.set(
           x + (y + 1) * LEAN,
-          GROUND + 0.005,
-          SHADOW_Z - (y + 1) * DEPTH
+          GROUND + 0.005 + (y + 1) * DEPTH * LIFT_SIN,
+          SHADOW_Z + (y + 1) * DEPTH * LIFT_COS
         )
-        // B — upright in the prism's centre plane.
-        scratch.upright.set(x, y, 0.06)
+        // B — upright. It stands beside the prism while it is being read as a
+        // labelled diagram, then slides into the prism's centre plane (apex to
+        // base mid-line) as the sliver.
+        const aside = 1 - toSliver
+        scratch.upright.set(
+          x + UPRIGHT_X * aside,
+          y + UPRIGHT_Y * aside,
+          0.06 + UPRIGHT_Z * aside
+        )
         // C — one row of the stack. Perimeter order maps corner-for-corner:
         // top-right, bottom-right, bottom-left, top-left.
         const right = c === 0 || c === 1
@@ -253,11 +309,20 @@ export default function ShadowBands({ controllerRef }) {
           RIBBON_Z
         )
 
-        scratch.point.lerpVectors(scratch.flat, scratch.upright, toSliver)
+        scratch.point.lerpVectors(scratch.flat, scratch.upright, standUp)
+
+        const o = c * 3
+        if (mirrorPos) {
+          // The second shadow is this one mirrored, so the pair rises together
+          // and stays a pair; it never goes on to become a ribbon.
+          mirrorPos.array[o] = -scratch.point.x
+          mirrorPos.array[o + 1] = scratch.point.y
+          mirrorPos.array[o + 2] = scratch.point.z
+        }
+
         scratch.point.lerp(scratch.ribbon, toRibbons)
         scratch.anchor.add(scratch.point)
 
-        const o = c * 3
         if (bandPos) {
           bandPos.array[o] = scratch.point.x
           bandPos.array[o + 1] = scratch.point.y
@@ -267,12 +332,6 @@ export default function ShadowBands({ controllerRef }) {
           outlinePos.array[o] = scratch.point.x
           outlinePos.array[o + 1] = scratch.point.y
           outlinePos.array[o + 2] = scratch.point.z
-        }
-        if (mirrorPos) {
-          // The mirrored triangle only ever shows the flat shadow state.
-          mirrorPos.array[o] = -scratch.flat.x
-          mirrorPos.array[o + 1] = scratch.flat.y
-          mirrorPos.array[o + 2] = scratch.flat.z
         }
       }
 
@@ -284,13 +343,13 @@ export default function ShadowBands({ controllerRef }) {
         // A dim violet on the ground, the accent once it is a ribbon.
         scratch.colour.copy(SHADOW_COLOR).lerp(RIBBON_COLORS[i], toRibbons)
         band.material.color.copy(scratch.colour)
-        band.material.opacity = shadowIn * (0.5 + 0.42 * toRibbons)
+        band.material.opacity = shadowIn * (0.78 + 0.14 * toRibbons)
       }
       if (outline) {
-        outline.material.opacity = shadowIn * (0.28 + 0.34 * Math.max(gap, toRibbons))
+        outline.material.opacity = shadowIn * (0.55 + 0.35 * Math.max(gap, toRibbons))
       }
       if (mirrorBand) {
-        mirrorBand.material.opacity = shadowIn * 0.42 * (1 - toSliver)
+        mirrorBand.material.opacity = 0.6 * converge * (1 - toSliver)
       }
 
       // ── Label, projected from the band's own centre ────────────────────────
@@ -306,6 +365,20 @@ export default function ShadowBands({ controllerRef }) {
       }
 
       scratch.anchor.multiplyScalar(0.25)
+
+      // Standing upright, the bands are close together and nearly level with
+      // each other, so their labels move off into a spread column beside the
+      // triangle rather than sitting on the bands and colliding.
+      if (standUp > 0 && toRibbons < 1) {
+        const aside = 1 - toSliver
+        scratch.labelTarget.set(
+          UPRIGHT_X * aside + DIAGRAM_LABEL_X,
+          BAND_CENTRE_Y[i] * DIAGRAM_LABEL_SPREAD + UPRIGHT_Y * aside,
+          0.06 + UPRIGHT_Z * aside
+        )
+        scratch.anchor.lerp(scratch.labelTarget, standUp * (1 - toRibbons))
+      }
+
       if (toRibbons > 0) {
         // Ribbon labels line up in a column beside the stack.
         scratch.labelTarget.set(LABEL_X, rowY - RIBBON_H * 0.5, RIBBON_Z)

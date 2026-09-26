@@ -23,6 +23,7 @@ import {
   sliceTilt,
   prismYaw,
   prismPitch,
+  prismRecede,
   PRISM_SHAPE,
   easeInOutCubic,
   easeOutCubic,
@@ -181,6 +182,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
   const groupRef = useRef(null)
   const sliceRefs = useRef([])
+  const sliceMeshRefs = useRef([])
   const edgeMaterialRefs = useRef([])
   const sectionRefs = useRef([])
 
@@ -254,13 +256,22 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           Math.sin(time * 0.24) * 0.01) *
           sway
 
+      // Once the sliver has left the solid and become the labelled ribbons,
+      // the solid steps back and aside rather than sitting behind them.
+      const recede = prismRecede(units)
+
       // Size comes from the hero layout (StageRig); full size on first frame.
       const breathe = 1 + Math.sin(time * 0.55) * 0.008 * idle
-      const scale = controller.stage.scale * breathe
+      const scale = controller.stage.scale * breathe * lerp(1, 0.58, recede)
       groupRef.current.scale.set(
         PRISM_SHAPE[0] * scale,
         PRISM_SHAPE[1] * scale,
         PRISM_SHAPE[2] * scale
+      )
+      groupRef.current.position.set(
+        lerp(0, -1.9, recede) * controller.stage.scale,
+        lerp(0, 0.25, recede) * controller.stage.scale,
+        lerp(0, -1.1, recede) * controller.stage.scale
       )
     }
 
@@ -293,6 +304,22 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     // ── Structural slices ───────────────────────────────────────────────────
     const edgeDim = lerp(1, EDGE_SETTLED, settleAmount)
 
+    // The solid fades back as its sliver becomes the labelled ribbons, so the
+    // ribbons are read against the background rather than against the prism.
+    // Every slice draws with the same two materials, so slice 0's mesh reaches
+    // them; they are touched through the mesh rather than through the memoized
+    // array, which the React compiler holds immutable.
+    const solidFade = lerp(1, 0.1, prismRecede(units))
+    const firstMesh = sliceMeshRefs.current[0]
+    if (firstMesh) {
+      const materials = firstMesh.material
+      for (let m = 0; m < materials.length; m++) {
+        materials[m].transparent = solidFade < 0.995
+        materials[m].opacity = solidFade
+        materials[m].depthWrite = solidFade > 0.995
+      }
+    }
+
     for (let i = 0; i < slices.length; i++) {
       const slice = slices[i]
 
@@ -308,7 +335,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       if (edgeMaterial) {
         const lit = clamp01((K_MAX - sweepK) / (K_MAX - slice.kLow))
         edgeMaterial.opacity =
-          lerp(EDGE_IDLE, EDGE_LIT, easeOutCubic(lit)) * edgeDim
+          lerp(EDGE_IDLE, EDGE_LIT, easeOutCubic(lit)) * edgeDim * solidFade
       }
 
       const section = sectionRefs.current[i]
@@ -397,6 +424,9 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           }}
         >
           <mesh
+            ref={(el) => {
+              sliceMeshRefs.current[i] = el
+            }}
             geometry={slice.geometry}
             material={prismMaterials}
             renderOrder={0}

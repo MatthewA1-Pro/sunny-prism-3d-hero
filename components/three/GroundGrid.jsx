@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-import { gridLevels } from '@/lib/timeline'
+import { easeInOutSine, getStages, gridLevels } from '@/lib/timeline'
 
 /*
  * The ground field under the prism (shapes.pptx `image4.png`).
@@ -23,9 +23,17 @@ const COARSE = 10
 const FINE = 50
 const GRID_Y = -1.62
 
-function buildGrid(divisions) {
-  const step = SIZE / divisions
-  const half = SIZE / 2
+/*
+ * The fine field is drawn over a smaller patch than the coarse one. At full
+ * extent its lines fall closer together than a pixel out toward the far edge
+ * and alias into horizontal banding across the screen; kept near, the same
+ * fifty divisions read as the granularity Sunny is pointing at.
+ */
+const FINE_SIZE = 11
+
+function buildGrid(divisions, size = SIZE) {
+  const step = size / divisions
+  const half = size / 2
   const positions = new Float32Array((divisions + 1) * 12)
 
   let o = 0
@@ -58,7 +66,7 @@ export default function GroundGrid({ controllerRef }) {
   const fineRef = useRef(null)
 
   const coarseGeometry = useMemo(() => buildGrid(COARSE), [])
-  const fineGeometry = useMemo(() => buildGrid(FINE), [])
+  const fineGeometry = useMemo(() => buildGrid(FINE, FINE_SIZE), [])
 
   useEffect(
     () => () => {
@@ -71,16 +79,22 @@ export default function GroundGrid({ controllerRef }) {
   useFrame(() => {
     const controller = controllerRef.current
     const levels = gridLevels(controller.stage.units)
+    // The grid steps back while the labelled ribbons are being read.
+    const quiet = 1 - 0.7 * easeInOutSine(getStages(controller.stage.units).ribbons)
 
     // The grid shares the prism's scale, so it stays the prism's ground
     // wherever the chapter anchors put it.
     if (groupRef.current) {
       groupRef.current.scale.setScalar(controller.stage.scale)
+      // The ground is the prism's own ground: its height has to follow the
+      // prism's size, or the floor drifts away from the base as the chapters
+      // resize it and the cast shadow lands on a different plane from the grid.
+      groupRef.current.position.y = GRID_Y * controller.stage.scale
       groupRef.current.visible = levels.coarse > 0.002
     }
 
-    if (coarseRef.current) coarseRef.current.material.opacity = levels.coarse * 0.5
-    if (fineRef.current) fineRef.current.material.opacity = levels.fine * 0.22
+    if (coarseRef.current) coarseRef.current.material.opacity = levels.coarse * 0.5 * quiet
+    if (fineRef.current) fineRef.current.material.opacity = levels.fine * 0.17 * quiet
   })
 
   return (

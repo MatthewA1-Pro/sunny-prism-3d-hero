@@ -193,7 +193,7 @@ body {
    further still, so the prism itself sits left of centre here. */
 .chapter-shadow,
 .chapter-ribbons {
-  --px: 40;
+  --px: 46;
   --py: 58;
   --ph: 22;
 }
@@ -499,14 +499,14 @@ body {
   /* The cast shadow runs right and back from the prism, so the solid moves
      left of the copy's column to leave the shadow its room. */
   .chapter-shadow {
-    --px: 52;
+    --px: 44;
     --py: 44;
     --ph: 38;
   }
 
-  /* The second triangle comes in from further right again. */
+  /* The pair of shadows spreads either side of the prism, so it is centred. */
   .chapter-ribbons {
-    --px: 36;
+    --px: 38;
     --py: 46;
     --ph: 36;
   }

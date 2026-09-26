@@ -10,6 +10,7 @@ import ShadowBands from './ShadowBands'
 import {
   CAMERA,
   SILHOUETTE_DROP,
+  cameraPitch,
   chapterUnits,
   damp,
   frameAt,
@@ -74,6 +75,7 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     height: 0,
     offsetX: 0,
     offsetY: 0,
+    pitch: -1,
     glow: '',
     pool: '',
     aura: '',
@@ -94,6 +96,24 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
       camera.far = 100
       camera.lookAt(0, 0, 0)
       a.ready = true
+    }
+
+    // The camera rises and looks down from the zoom-out on, so the ground grid
+    // and everything lying on it read as surfaces rather than as lines. It
+    // swings on an arc about the subject, so the prism stays the same size and
+    // centred; the prism's own pitch keys take the change back out of the angle
+    // it is seen at (see PITCH_KEYS).
+    const pitch = cameraPitch(s)
+    if (Math.abs(pitch - a.pitch) > 0.0004) {
+      const cos = Math.cos(pitch)
+      const sin = Math.sin(pitch)
+      camera.position.set(
+        0,
+        CAMERA.y * cos + CAMERA.z * sin,
+        CAMERA.z * cos - CAMERA.y * sin
+      )
+      camera.lookAt(0, 0, 0)
+      a.pitch = pitch
     }
 
     const f = frameAt(s, c.layout, composition.explodeScale, frame.current)
