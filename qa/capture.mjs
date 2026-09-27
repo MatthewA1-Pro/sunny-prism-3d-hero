@@ -40,7 +40,7 @@ const BG = [15, 2, 31]
  * is, so "does the material match the reference" can be checked numerically
  * against frames pulled from demo.mp4, not just by eye.
  */
-export function measurePng(file) {
+export function measurePng(file, { lumMin = 35 } = {}) {
   const png = PNG.sync.read(fs.readFileSync(file))
   const { width, height, data } = png
 
@@ -49,7 +49,12 @@ export function measurePng(file) {
   // noise in frames pulled from demo.mp4 — a plain colour-distance test let
   // that noise register as prism and reported every reference frame as 100%
   // tall.
-  const LUM_MIN = 35
+  //
+  // Callers that compare two frames of the SAME scene can raise it: the ground
+  // grid's lines sit near 35 while they fade, and a line that spans the frame
+  // lands in or out of the measurement on a rounding difference, which moves
+  // the reported bounding box far more than anything on screen actually moved.
+  const LUM_MIN = lumMin
 
   let lit = 0
   let lumSum = 0

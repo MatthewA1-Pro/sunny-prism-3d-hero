@@ -30,21 +30,25 @@ Stack: Next.js 16.1.6, React 19.2.3, three 0.182, @react-three/fiber 9.5,
 ```text
 app/
   layout.js              font, metadata, viewport
-  page.js                <main> > PrismHero
-  globals.css            design tokens, hero layout (stacked + 11-column grid), hint, fallback
+  page.js                <main> > PrismStory
+  globals.css            design tokens, stage, chapters and their prism anchors, labels, fallback
 components/
   hero/
-    PrismHero.jsx        sticky stage + scroll track, controller, slot measurement, fallback
-    HeroContent.jsx      copy, CTA, stats and scroll hint layout
+    PrismStory.jsx       fixed stage + scrolling chapters, controller, anchor measurement, fallback
+    ChapterText.jsx      one chapter's eyebrow, title and body
+    HeroContent.jsx      hero copy, CTA, stats and scroll hint layout
     ScrollHint.jsx
   three/
-    PrismCanvas.jsx      transparent Canvas, progress damping, lens-shift framing, copy fade
+    PrismCanvas.jsx      transparent Canvas, progress damping, camera lift, lens-shift framing
     PrismObject.jsx      sliced prism, silver matcap shader, seams, cut sweep, section scan
+    GroundGrid.jsx       the ground field, coarse over fine (10x10 into 50x50)
+    ShadowBands.jsx      cast shadow, its labelled bands, and the sliver that becomes the ribbons
     AmbientField.jsx     orbit lines and particles around the prism
 lib/
+  chapters.js            the chapter list, band labels and everything still unresolved
   heroContent.js         ALL hero copy + list of unresolved content
   prismGeometry.js       half-space solid construction, slicing, cross-sections
-  timeline.js            stage map, focus/copy timing, hero framing maths, orientation
+  timeline.js            chapter units, stage ranges, framing maths, orientation, camera lift
 public/
   matcap.png             the buyer's chrome/dispersion matcap
   matcap-soft.png        blurred copy of it (generated), the silver base layer
@@ -77,41 +81,67 @@ invisible 11-column grid.
   scroll hint. The prism takes whatever height the copy and stats leave, so they
   cannot collide.
 
-**Prism placement follows the DOM.** An invisible `.prism-slot` marks where the
-prism belongs in each layout. `PrismHero` measures it (ResizeObserver, fonts ready,
-resize) and `PrismCanvas` frames the prism onto it with a lens shift
+**Prism placement follows the DOM.** Every chapter declares where the prism
+belongs in CSS custom properties — `--px`, `--py` (its centre, as percentages of
+the stage) and `--ph` (its height) — so a media query can re-place it per
+breakpoint without touching JS. `PrismStory` reads them (ResizeObserver, fonts
+ready, resize) and `PrismCanvas` frames the prism onto them with a lens shift
 (`camera.setViewOffset`): the camera still looks straight at the prism, so its
 shading and perspective are identical wherever the layout places it.
 
 ## Scroll choreography
 
-One normalised progress value (`0..1`) over a `220vh` track drives everything —
-prism transforms, its path, the copy drift and the background glow — so reverse scrolling retraces the
-timeline exactly and DOM and WebGL cannot drift apart. It is damped once, with
-`THREE.MathUtils.damp` (frame-rate independent); nothing downstream smooths it a
-second time, so the prism never trails the scroll. Scrolling never triggers a React
-render, and the page always opens at the top, on the hero.
+One normalised progress value (`0..1`) drives everything — prism transforms, the
+grid, the shadow, the bands, the ribbons and the background glow — so reverse
+scrolling retraces the timeline exactly and DOM and WebGL cannot drift apart. It
+is damped once, with `THREE.MathUtils.damp` (frame-rate independent); nothing
+downstream smooths it a second time, so the prism never trails the scroll.
+Scrolling never triggers a React render, and the page always opens at the top, on
+the hero.
 
-The motion follows the hero animation storyboard (the copy stays readable while
-the prism floats, moves and rotates through the scroll, then settles on the
-right), and the geometry follows the requirement's slicing states. It only moves
-forward — no state is undone by scrolling further:
+Progress is expressed in **chapter units**: `s = p * CHAPTER_COUNT`, so chapter
+`i` is on screen while `s` is in `[i, i+1]` and every stage range in
+`lib/timeline.js` reads directly against the walkthrough. The seven chapters are
+followed by one viewport of tail (`.chapter-tail`), which is why the multiplier
+is `CHAPTER_COUNT` and not `CHAPTER_COUNT - 1`: without it the last chapter would
+only be reached at the very bottom of the page and would have no room to play.
 
-| progress  | storyboard beat   | prism and page                                                  | geometry |
-|-----------|-------------------|-----------------------------------------------------------------|----------|
-| 0.00      | 1 initial hero    | in its slot, tilted, floating                                   | closed |
-| 0.00–0.30 | 2 scroll begins   | turns, drifts toward centre, slight push-in; stats clear        | cutting line crosses it, seams light (0.12–0.34) |
-| 0.30–0.60 | 3 main transition | closer and slightly left, other faces turn in; glow brightens   | pieces open (0.30–0.80) |
-| 0.60–0.85 | 4 new state       | back toward the right, scale eases down                         | cross-section rises through every piece (0.50–0.82) |
-| 0.85–1.00 | 5 final state     | settles, rotation stabilises; orbit lines and particles         | exploded staircase holds |
+The story follows the buyer's walkthrough of `shapes.pptx`, in his order. It only
+moves forward — no state is undone by scrolling further:
+
+| chapter      | copy            | what happens |
+|--------------|-----------------|--------------|
+| 0 `hero`     | the design      | the designed hero: copy, CTA, stats, scroll hint; prism closed |
+| 1 `section`  | cross-section   | a horizontal section travels apex → base, smallest to largest (`image2.gif`, top row) |
+| 2 `cut`      | the cut         | the diagonal plane crosses the solid, seams light as it passes, the pieces open and stay open |
+| 3 `grid`     | granularity     | the view pulls back, the camera lifts, and the ground field resolves 10×10 into 50×50 (`image4.png`) |
+| 4 `shadow`   | the shadow      | a low light behind and to the left throws the prism's flat triangular shadow forward across the floor |
+| 5 `ribbons`  | the bands       | the shadow stands up, splits along the same cuts into four labelled bands, and the second shadow arrives from the other side to meet it (`image8.png`) |
+| 6 `sliver`   | the sliver      | the bands move into the prism's centre plane — apex to base mid-line — then spread into the labelled ribbon stack as the view zooms in |
 
 Position, scale and rotation run on a smooth spline through those beats, so the
-prism flows through them without stopping; every angle stays inside the band
-where the silver matcap renders fully lit. The copy drifts up slightly (text
-parallax), and a glow, a light pool and a background aura behind the canvas
-follow the prism more slowly (background parallax). On phones and portrait
-tablets the prism stays in its slot under the copy, and its size is capped so
-the open pieces fit the screen.
+prism flows through them without stopping. A glow, a light pool and a background
+aura behind the canvas follow the prism more slowly (background parallax). On
+phones and portrait tablets the prism's size is capped so the open pieces fit the
+screen, and the band diagram sits closer in so its labels stay on screen.
+
+**The camera lift.** From the zoom-out on, the camera rises and looks down 16°,
+swinging on an arc about the subject so the prism keeps its size and framing.
+Without it the camera sits almost in the ground plane: the grid renders as
+horizontal stripes and the cast shadow collapses to a line. Looking down tips the
+prism toward the viewer by the same angle, so its own pitch keys take that back
+out — what matters is the angle the prism is *seen* at, which stays inside the
+−6°..8° band the matcap was validated over (`qa/matcap-preview.mjs`).
+
+**The shadow and the sliver** (`ShadowBands.jsx`) are one set of four quads that
+morphs between three states, so the page reads as one thing changing rather than
+three props swapped in and out: flat on the floor, upright and labelled, then the
+ribbon stack. The bands are the prism's own silhouette triangle cut by the same
+diagonal system as the solid, so the shadow comes apart exactly where the prism
+does, and each ribbon's width is its band's share of the triangle's area. Flat on
+the floor the triangle is too shallow at the camera's angle to carry four labels,
+so it stands up as it splits — the readable version of the labelled triangles in
+`image8.png`. Labels are page DOM positioned by projection, so they stay crisp.
 
 **Geometry.** The prism is built procedurally as an intersection of half-spaces and
 partitioned by three planes `2x + y = 0, -1, -2`, parallel to the triangle's right
@@ -140,8 +170,11 @@ With `npm run start` running:
 
 ```bash
 node qa/hero.mjs http://localhost:3000 <label> 1440 900 "0,0.25,0.5,1"  # what a visitor sees, hint included
+node qa/bands-test.mjs http://localhost:3000 1440 900                   # chapters 4-6: track length, labels, ribbon column
 node qa/scrub-test.mjs http://localhost:3000                            # forward/reverse, flick, resize, reload
 node qa/a11y-fallback-test.mjs http://localhost:3000                    # reduced motion + no-WebGL fallback
+node qa/texture-failure-test.mjs http://localhost:3000                  # matcap blocked: copy stays, fallback shows
+bash qa/run-p23.sh                                                      # all of the above, every viewport, one run
 node qa/quick.mjs http://localhost:3000 <label> 1440 900 "0,0.5,1"      # prism-focused captures + dark-pixel share
 node qa/diag-scroll.mjs http://localhost:3000 390 844                   # per-step scroll timing, fps, ResizeObserver count
 ```

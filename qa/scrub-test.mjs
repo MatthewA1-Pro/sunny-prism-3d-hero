@@ -37,7 +37,11 @@ async function shoot(page, max, f, tag) {
   await settle(2000)
   const file = path.join(OUT, `${tag}_${Math.round(f * 100)}.png`)
   await page.screenshot({ path: file })
-  return measurePng(file)
+  // This test compares two renders of the same scene, so it measures only
+  // pixels the prism and the risen bands actually reach (~120 and up). At the
+  // shared threshold the fading grid — whose lines cross the whole frame —
+  // drifts in and out of the bounding box and swamps the comparison.
+  return measurePng(file, { lumMin: 90 })
 }
 
 const run = async () => {
