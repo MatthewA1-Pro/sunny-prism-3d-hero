@@ -7,6 +7,7 @@ import PrismObject from './PrismObject'
 import AmbientField from './AmbientField'
 import GroundGrid from './GroundGrid'
 import ShadowBands from './ShadowBands'
+import FrustumGuide from './FrustumGuide'
 import CentreLine from './CentreLine'
 import {
   CAMERA,
@@ -20,20 +21,12 @@ import {
   scaleForFraction,
 } from '@/lib/timeline'
 
-/**
- * Advances the single authoritative progress value.
- *
- * The scroll listener only ever writes a target into the controller; this
- * damps toward it inside the frame loop.
- */
 function ProgressDriver({ controllerRef, reducedMotion }) {
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05)
     const c = controllerRef.current
 
     if (!c.initialized) {
-      // The first frame resolves straight to the current state rather than
-      // animating up from zero.
       c.progress = c.target
       c.pointer.x = c.pointerTarget.x
       c.pointer.y = c.pointerTarget.y
@@ -48,9 +41,6 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
       return
     }
 
-    // The only smoothing stage for scroll: lambda 10 closes 63% of the gap in
-    // 0.1 s, enough to absorb wheel steps without the prism trailing the
-    // scroll. Nothing downstream smooths progress again.
     c.progress = damp(c.progress, c.target, 10, dt)
     c.pointer.x = damp(c.pointer.x, c.pointerTarget.x, 3.5, dt)
     c.pointer.y = damp(c.pointer.y, c.pointerTarget.y, 3.5, dt)
@@ -59,15 +49,6 @@ function ProgressDriver({ controllerRef, reducedMotion }) {
   return null
 }
 
-/**
- * Places the prism at the current chapter's anchor and keeps the background
- * light in step with it.
- *
- * Framing uses a lens shift (camera.setViewOffset) rather than moving the
- * prism sideways. The camera keeps looking straight at the prism, so it is
- * shaded and foreshortened the same wherever the chapters put it; an off-axis
- * prism would sample a different part of the matcap and read darker.
- */
 function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reducedMotion }) {
   const frame = useRef({ cx: 0.5, cy: 0.5, fraction: 0.5 })
   const applied = useRef({
@@ -86,7 +67,6 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     const c = controllerRef.current
     const a = applied.current
 
-    // Chapter units drive every stage; the prism and grid read them back.
     const s = chapterUnits(c.progress)
     c.stage.units = s
 
@@ -99,11 +79,6 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
       a.ready = true
     }
 
-    // The camera rises and looks down from the zoom-out on, so the ground grid
-    // and everything lying on it read as surfaces rather than as lines. It
-    // swings on an arc about the subject, so the prism stays the same size and
-    // centred; the prism's own pitch keys take the change back out of the angle
-    // it is seen at (see PITCH_KEYS).
     const pitch = cameraPitch(s)
     if (Math.abs(pitch - a.pitch) > 0.0004) {
       const cos = Math.cos(pitch)
@@ -118,14 +93,10 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     }
 
     const f = frameAt(s, c.layout, composition.explodeScale, frame.current)
-
-    // Storyboard: "subtle floating motion".
     const cy = f.cy + (reducedMotion ? 0 : Math.sin(clock.elapsedTime * 0.9) * 0.006)
 
     c.stage.scale = scaleForFraction(f.fraction)
 
-    // The silhouette's visual centre sits a little below the pivot, because
-    // the front base corner dips toward the camera.
     const pivotY = cy - SILHOUETTE_DROP * f.fraction
     const offsetX = -(f.cx - 0.5) * size.width
     const offsetY = -(pivotY - 0.5) * size.height
@@ -151,7 +122,6 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
       a.offsetY = offsetY
     }
 
-    // ── Background glow, light pool and aura follow the prism ─────────────
     const px = f.cx * size.width
     const py = cy * size.height
     const ph = f.fraction * size.height
@@ -196,11 +166,6 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
   return null
 }
 
-/*
- * The page-layer refs travel as individual `*Ref` props rather than one object:
- * React's compiler only treats a value as a mutable ref when it is passed as a
- * ref, and the frame loop has to write their styles.
- */
 function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
   const width = useThree((state) => state.size.width)
   const composition = useMemo(() => getComposition(width), [width])
@@ -221,17 +186,13 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
         composition={composition}
         reducedMotion={reducedMotion}
       />
+      <FrustumGuide controllerRef={controllerRef} />
       <CentreLine controllerRef={controllerRef} />
       <AmbientField controllerRef={controllerRef} reducedMotion={reducedMotion} />
     </>
   )
 }
 
-/**
- * Transparent canvas, fixed behind the scrolling chapters: the page's
- * background, glow and copy are DOM, so the prism sits between them.
- * The matcap needs no lights.
- */
 export default function PrismCanvas({ controllerRef, reducedMotion, ...layerRefs }) {
   return (
     <Canvas
