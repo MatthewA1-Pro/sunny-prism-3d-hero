@@ -48,6 +48,10 @@ const run = async () => {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: 'new',
+    // Headless software WebGL renders flat out with no vsync, so a DevTools
+    // call can sit behind several seconds of drawing. The default 30s protocol
+    // timeout aborts mid-run on the heavier chapters (as qa/hero.mjs found).
+    protocolTimeout: 600000,
     args: [
       '--no-sandbox',
       '--enable-unsafe-swiftshader',
@@ -71,6 +75,18 @@ const run = async () => {
   await page.addStyleTag({ content: '.scroll-hint{display:none!important}' })
   await page.waitForSelector('canvas', { timeout: 120000 })
   await settle(9000)
+
+  // Cold start: the canvas element exists well before software WebGL has
+  // compiled the shader and decoded the matcap, so an early frame can be
+  // measured with the prism not yet on it. Wait at the top until two readings
+  // agree — otherwise the baseline that every later check is compared against
+  // is a half-drawn frame, and the comparisons are meaningless.
+  let settled = null
+  for (let i = 0; i < 10; i++) {
+    const warm = await shoot(page, 1, 0, 'warmup')
+    if (settled !== null && Math.abs(warm.coverage - settled) < 0.25) break
+    settled = warm.coverage
+  }
 
   const max = await page.evaluate(
     () => document.documentElement.scrollHeight - window.innerHeight
