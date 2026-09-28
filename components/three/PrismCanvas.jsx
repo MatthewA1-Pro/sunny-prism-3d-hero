@@ -7,8 +7,7 @@ import PrismObject from './PrismObject'
 import AmbientField from './AmbientField'
 import GroundGrid from './GroundGrid'
 import ShadowBands from './ShadowBands'
-import FrustumGuide from './FrustumGuide'
-import CentreLine from './CentreLine'
+import SectionFill from './SectionFill'
 import {
   CAMERA,
   SILHOUETTE_DROP,
@@ -186,8 +185,7 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
         composition={composition}
         reducedMotion={reducedMotion}
       />
-      <FrustumGuide controllerRef={controllerRef} />
-      <CentreLine controllerRef={controllerRef} />
+      <SectionFill controllerRef={controllerRef} />
       <AmbientField controllerRef={controllerRef} reducedMotion={reducedMotion} />
     </>
   )
