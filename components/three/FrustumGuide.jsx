@@ -10,39 +10,31 @@ import {
   getStages,
   lerp,
   range,
+  prismYaw,
+  prismPitch,
+  prismRecede,
+  PRISM_SHAPE,
 } from '@/lib/timeline'
 
 /*
  * Camera-frustum guide — buyer requirement from animation-details.mp4.
  *
- * The prism is the view volume. This draws the projection system Sunny
- * walks through in the deck:
- *   • eye at the apex (z = 0 in diagram space → apex here)
- *   • near plane (plane of projection) with width/2 · height/2 extent
- *   • far plane
- *   • red rays from the eye through the near-plane corners to the far plane
- *
- * Timeline (chapter units):
- *   1.1–2.0   frustum fades in during the cross-section sweep
- *   2.0–3.5   holds through the cut / explode
- *   3.5–5.0   softens as the grid and shadow take focus
- *   5.0–7.0   fades out so bands / ribbons own the frame
+ * Drawn ON TOP of the prism (depthTest false) so the red rays, near plane
+ * and far plane are always readable. Follows the same yaw/pitch/scale as
+ * the solid so it sits inside the silhouette.
  */
 
-const RAY_COLOR = new THREE.Color('#FF2A2A')
-const PLANE_COLOR = new THREE.Color('#5B8CFF')
-const NEAR_FILL = new THREE.Color('#7B5CFF')
+const RAY_COLOR = new THREE.Color('#FF2222')
+const PLANE_COLOR = new THREE.Color('#6EB0FF')
+const NEAR_FILL = new THREE.Color('#A078FF')
 
-/** Near-plane half-extents in local prism units (matches section at mid-height). */
-const NEAR_HALF_W = 0.55
-const NEAR_HALF_H = 0.55
-/** Far-plane half-extents (larger, as the solid widens toward the base). */
-const FAR_HALF_W = 1.0
-const FAR_HALF_H = 1.0
-/** Y positions: apex = eye, near a little below, far near the base. */
+const NEAR_HALF_W = 0.62
+const NEAR_HALF_H = 0.62
+const FAR_HALF_W = 1.05
+const FAR_HALF_H = 1.05
 const EYE_Y = 1.0
-const NEAR_Y = 0.35
-const FAR_Y = -0.85
+const NEAR_Y = 0.25
+const FAR_Y = -0.95
 
 function buildRaysGeometry() {
   const geo = new THREE.BufferGeometry()
@@ -109,7 +101,7 @@ function writeFill(attr, hw, hh, y) {
   attr.needsUpdate = true
 }
 
-function writeRays(attr, nearHw, nearHh, farHw, farHh, nearY, farY) {
+function writeRays(attr, farHw, farHh, farY) {
   const a = attr.array
   const farCorners = [
     [-farHw, farY, -farHh],
@@ -142,6 +134,14 @@ export default function FrustumGuide({ controllerRef }) {
   const farOutlineGeo = useMemo(() => buildPlaneOutline(), [])
   const nearFillGeo = useMemo(() => buildPlaneFill(), [])
 
+  // Seed geometry once so something is on screen even before the first frame write.
+  useEffect(() => {
+    writeRays(raysGeo.attributes.position, FAR_HALF_W, FAR_HALF_H, FAR_Y)
+    writeOutline(nearOutlineGeo.attributes.position, NEAR_HALF_W, NEAR_HALF_H, NEAR_Y)
+    writeOutline(farOutlineGeo.attributes.position, FAR_HALF_W, FAR_HALF_H, FAR_Y)
+    writeFill(nearFillGeo.attributes.position, NEAR_HALF_W, NEAR_HALF_H, NEAR_Y)
+  }, [raysGeo, nearOutlineGeo, farOutlineGeo, nearFillGeo])
+
   useEffect(
     () => () => {
       raysGeo.dispose()
@@ -157,102 +157,113 @@ export default function FrustumGuide({ controllerRef }) {
     const units = controller.stage.units
     const stage = getStages(units)
 
-    const fadeIn = easeOutCubic(range(units, 1.1, 1.75))
-    const fadeOut = 1 - easeInOutSine(range(units, 4.6, 5.6))
-    const opacity = fadeIn * fadeOut
+    // Visible early: soft on the hero, full during section/cut, out for ribbons.
+    const fadeIn = easeOutCubic(range(units, 0.15, 1.2))
+    const fadeOut = 1 - easeInOutSine(range(units, 4.8, 5.9))
+    const opacity = Math.max(0.15, fadeIn) * fadeOut
 
     const group = groupRef.current
     if (!group) return
 
-    const visible = opacity > 0.004
+    const visible = opacity > 0.02
     group.visible = visible
     if (!visible) return
 
-    group.scale.setScalar(controller.stage.scale)
+    // Match the prism's orientation and size so the guide sits in the solid.
+    const recede = prismRecede(units)
+    const scale = controller.stage.scale * lerp(1, 0.58, recede)
+    group.scale.set(
+      PRISM_SHAPE[0] * scale,
+      PRISM_SHAPE[1] * scale,
+      PRISM_SHAPE[2] * scale
+    )
+    group.rotation.y = prismYaw(units)
+    group.rotation.x = prismPitch(units)
+    group.position.set(
+      lerp(0, -1.9, recede) * controller.stage.scale,
+      lerp(0, 0.25, recede) * controller.stage.scale,
+      lerp(0, -1.1, recede) * controller.stage.scale
+    )
 
     const sectionT = easeInOutSine(stage.section)
-    const nearHw = lerp(NEAR_HALF_W * 0.35, NEAR_HALF_W, sectionT)
-    const nearHh = lerp(NEAR_HALF_H * 0.35, NEAR_HALF_H, sectionT)
-    const nearY = lerp(0.85, NEAR_Y, sectionT)
+    const nearHw = lerp(NEAR_HALF_W * 0.25, NEAR_HALF_W, Math.max(sectionT, 0.35))
+    const nearHh = lerp(NEAR_HALF_H * 0.25, NEAR_HALF_H, Math.max(sectionT, 0.35))
+    const nearY = lerp(0.75, NEAR_Y, Math.max(sectionT, 0.35))
 
-    writeRays(
-      raysGeo.attributes.position,
-      nearHw,
-      nearHh,
-      FAR_HALF_W,
-      FAR_HALF_H,
-      nearY,
-      FAR_Y
-    )
+    writeRays(raysGeo.attributes.position, FAR_HALF_W, FAR_HALF_H, FAR_Y)
     writeOutline(nearOutlineGeo.attributes.position, nearHw, nearHh, nearY)
     writeOutline(farOutlineGeo.attributes.position, FAR_HALF_W, FAR_HALF_H, FAR_Y)
     writeFill(nearFillGeo.attributes.position, nearHw, nearHh, nearY)
 
-    if (raysRef.current) raysRef.current.material.opacity = opacity * 0.9
-    if (nearOutlineRef.current) nearOutlineRef.current.material.opacity = opacity * 0.85
-    if (farOutlineRef.current) farOutlineRef.current.material.opacity = opacity * 0.55
-    if (nearFillRef.current) nearFillRef.current.material.opacity = opacity * 0.18
+    if (raysRef.current) raysRef.current.material.opacity = opacity * 1.0
+    if (nearOutlineRef.current) nearOutlineRef.current.material.opacity = opacity * 0.95
+    if (farOutlineRef.current) farOutlineRef.current.material.opacity = opacity * 0.75
+    if (nearFillRef.current) nearFillRef.current.material.opacity = opacity * 0.35
     if (eyeRef.current) {
-      eyeRef.current.material.opacity = opacity * 0.95
-      eyeRef.current.scale.setScalar(0.06 + 0.02 * Math.sin(units * 3))
+      eyeRef.current.material.opacity = opacity * 1.0
+      eyeRef.current.scale.setScalar(0.09)
     }
   })
 
   return (
-    <group ref={groupRef} visible={false}>
-      <lineSegments ref={raysRef} geometry={raysGeo} renderOrder={16} frustumCulled={false}>
+    <group ref={groupRef} visible>
+      <lineSegments ref={raysRef} geometry={raysGeo} renderOrder={30} frustumCulled={false}>
         <lineBasicMaterial
           color={RAY_COLOR}
           transparent
-          opacity={0}
+          opacity={0.9}
           depthWrite={false}
-          depthTest={true}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
       </lineSegments>
 
-      <line ref={nearOutlineRef} geometry={nearOutlineGeo} renderOrder={17} frustumCulled={false}>
+      <line ref={nearOutlineRef} geometry={nearOutlineGeo} renderOrder={31} frustumCulled={false}>
         <lineBasicMaterial
           color={PLANE_COLOR}
           transparent
-          opacity={0}
+          opacity={0.9}
           depthWrite={false}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
       </line>
 
-      <mesh ref={nearFillRef} geometry={nearFillGeo} renderOrder={15} frustumCulled={false}>
+      <mesh ref={nearFillRef} geometry={nearFillGeo} renderOrder={29} frustumCulled={false}>
         <meshBasicMaterial
           color={NEAR_FILL}
           transparent
-          opacity={0}
+          opacity={0.3}
           side={THREE.DoubleSide}
           depthWrite={false}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
       </mesh>
 
-      <line ref={farOutlineRef} geometry={farOutlineGeo} renderOrder={17} frustumCulled={false}>
+      <line ref={farOutlineRef} geometry={farOutlineGeo} renderOrder={31} frustumCulled={false}>
         <lineBasicMaterial
           color={PLANE_COLOR}
           transparent
-          opacity={0}
+          opacity={0.7}
           depthWrite={false}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
       </line>
 
-      <mesh ref={eyeRef} position={[0, EYE_Y, 0]} renderOrder={18} frustumCulled={false}>
-        <sphereGeometry args={[1, 12, 12]} />
+      <mesh ref={eyeRef} position={[0, EYE_Y, 0]} renderOrder={32} frustumCulled={false}>
+        <sphereGeometry args={[1, 16, 16]} />
         <meshBasicMaterial
           color={RAY_COLOR}
           transparent
-          opacity={0}
+          opacity={1}
           depthWrite={false}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />

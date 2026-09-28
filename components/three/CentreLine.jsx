@@ -9,33 +9,23 @@ import {
   easeOutCubic,
   getStages,
   range,
+  prismYaw,
+  prismPitch,
+  prismRecede,
+  PRISM_SHAPE,
+  lerp,
 } from '@/lib/timeline'
 
 /*
  * Red centre line that straightens into a ledge.
- *
- * Buyer requirement (animation-details.mp4 / shapes.pptx walkthrough):
- * a red centre line runs through the prism — apex down the mid-line to the
- * base — and later straightens into a horizontal ledge. Sunny deferred this
- * in the original walkthrough ("we can do later, another problem"); this
- * component is that stage.
- *
- * Behaviour in chapter units:
- *   ~1.2–2.2  the line fades in along the prism's vertical centre
- *   ~2.2–4.0  it holds, reading as the structural spine of the solid
- *   ~5.5–6.6  it straightens (pitch flattens) and slides into a ledge
- *             as the bands become the sliver / ribbons
- *   ~6.6–7.0  settled ledge holds beside the ribbon stack
+ * Drawn with depthTest false so it is never hidden by the solid.
  */
 
 const LINE_COLOR = new THREE.Color('#FF2D2D')
-const LEDGE_COLOR = new THREE.Color('#FF4040')
+const LEDGE_COLOR = new THREE.Color('#FF5050')
 
-/** Apex and base mid-line of the procedural pyramid (y = +1 → y = −1 at x=0,z=0). */
 const VERT_A = new THREE.Vector3(0, 1, 0)
 const VERT_B = new THREE.Vector3(0, -1, 0)
-
-/** Settled ledge: horizontal segment near the ribbon stack. */
 const LEDGE_A = new THREE.Vector3(-0.9, -0.15, 0.7)
 const LEDGE_B = new THREE.Vector3(1.2, -0.15, 0.7)
 
@@ -54,6 +44,17 @@ export default function CentreLine({ controllerRef }) {
   const lineRef = useRef(null)
   const geometry = useMemo(() => buildLineGeometry(), [])
 
+  useEffect(() => {
+    const pos = geometry.attributes.position
+    pos.array[0] = VERT_A.x
+    pos.array[1] = VERT_A.y
+    pos.array[2] = VERT_A.z
+    pos.array[3] = VERT_B.x
+    pos.array[4] = VERT_B.y
+    pos.array[5] = VERT_B.z
+    pos.needsUpdate = true
+  }, [geometry])
+
   useEffect(() => () => geometry.dispose(), [geometry])
 
   const scratch = useMemo(
@@ -70,22 +71,31 @@ export default function CentreLine({ controllerRef }) {
     const units = controller.stage.units
     const stage = getStages(units)
 
-    // Fade in during the section sweep; hold through the cut and grid.
-    const lineIn = easeOutCubic(range(units, 1.15, 1.85))
-    // Straighten into the ledge as the sliver rises (chapter 6).
+    const lineIn = easeOutCubic(range(units, 0.2, 1.2))
     const toLedge =
       easeInOutSine(stage.sliver) * 0.55 + easeInOutSine(stage.ribbons) * 0.45
-    const opacity = lineIn * (1 - 0.15 * stage.settle)
+    const opacity = Math.max(0.2, lineIn) * (1 - 0.1 * stage.settle)
 
     const group = groupRef.current
     const line = lineRef.current
     if (!group || !line) return
 
-    const visible = opacity > 0.004
-    group.visible = visible
-    if (!visible) return
+    group.visible = opacity > 0.02
 
-    group.scale.setScalar(controller.stage.scale)
+    const recede = prismRecede(units)
+    const scale = controller.stage.scale * lerp(1, 0.58, recede)
+    group.scale.set(
+      PRISM_SHAPE[0] * scale,
+      PRISM_SHAPE[1] * scale,
+      PRISM_SHAPE[2] * scale
+    )
+    group.rotation.y = prismYaw(units)
+    group.rotation.x = prismPitch(units)
+    group.position.set(
+      lerp(0, -1.9, recede) * controller.stage.scale,
+      lerp(0, 0.25, recede) * controller.stage.scale,
+      lerp(0, -1.1, recede) * controller.stage.scale
+    )
 
     scratch.a.lerpVectors(VERT_A, LEDGE_A, toLedge)
     scratch.b.lerpVectors(VERT_B, LEDGE_B, toLedge)
@@ -101,18 +111,18 @@ export default function CentreLine({ controllerRef }) {
 
     scratch.colour.copy(LINE_COLOR).lerp(LEDGE_COLOR, toLedge)
     line.material.color.copy(scratch.colour)
-    line.material.opacity = opacity * (0.75 + 0.25 * toLedge)
+    line.material.opacity = opacity
   })
 
   return (
-    <group ref={groupRef} visible={false}>
-      <line ref={lineRef} geometry={geometry} renderOrder={15} frustumCulled={false}>
+    <group ref={groupRef} visible>
+      <line ref={lineRef} geometry={geometry} renderOrder={28} frustumCulled={false}>
         <lineBasicMaterial
           color={LINE_COLOR}
           transparent
-          opacity={0}
+          opacity={0.85}
           depthWrite={false}
-          depthTest={true}
+          depthTest={false}
           blending={THREE.AdditiveBlending}
           toneMapped={false}
         />
