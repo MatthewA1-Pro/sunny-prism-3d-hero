@@ -33,9 +33,8 @@ import {
   range,
 } from '@/lib/timeline'
 
-/* Cross-section colours matched to the buyer's diagram bands (green / purple)
- * from shapes.pptx and animation-details.mp4. */
-const COLOR_SECTION = new THREE.Color('#3DCC6E')
+/* Section outline colour matches the filled purple plane (gif2 reference). */
+const COLOR_SECTION = new THREE.Color('#B48CFF')
 const COLOR_CUT = new THREE.Color('#9B5CFF')
 
 const RING_INFLATE = 1.012
@@ -48,7 +47,6 @@ const EDGE_SETTLED = 0.65
 const MATCAP_URL = '/matcap.png'
 const MATCAP_SOFT_URL = '/matcap-soft.png'
 
-/* Brighter crystal-chrome tuning (buyer glass/crystal references). */
 const SOFT_GAIN = 2.65
 const SOFT_SATURATION = 0.5
 const MATCAP_DETAIL = 1.55
@@ -99,10 +97,10 @@ uniform float matcapDetail;`
       .replace(
         sample,
         `${sample}
-		vec3 softColor = texture2D( matcapSoft, uv ).rgb;
-		float softLuma = dot( softColor, vec3( 0.2126, 0.7152, 0.0722 ) );
-		vec3 silver = min( mix( vec3( softLuma ), softColor, softSaturation ) * softGain, vec3( 1.0 ) );
-		matcapColor.rgb = 1.0 - ( 1.0 - silver ) * ( 1.0 - min( matcapColor.rgb * matcapDetail, vec3( 1.0 ) ) );`
+\t\tvec3 softColor = texture2D( matcapSoft, uv ).rgb;
+\t\tfloat softLuma = dot( softColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+\t\tvec3 silver = min( mix( vec3( softLuma ), softColor, softSaturation ) * softGain, vec3( 1.0 ) );
+\t\tmatcapColor.rgb = 1.0 - ( 1.0 - silver ) * ( 1.0 - min( matcapColor.rgb * matcapDetail, vec3( 1.0 ) ) );`
       )
   }
   material.customProgramCacheKey = () => 'prism-silver-matcap'
@@ -212,7 +210,10 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
     const edgeDim = lerp(1, EDGE_SETTLED, settleAmount)
 
-    const solidFade = lerp(1, 0.1, prismRecede(units))
+    // Soften the solid while the cross-section is active so the filled
+    // purple plane (SectionFill) reads through the matcap.
+    const sectionSeeThrough = easeInOutSine(s.section) * 0.35
+    const solidFade = lerp(1, 0.1, prismRecede(units)) * (1 - sectionSeeThrough)
     const firstMesh = sliceMeshRefs.current[0]
     if (firstMesh) {
       const materials = firstMesh.material
@@ -249,7 +250,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         if (visible) {
           section.position.set((x0 + x1) / 2, scanY, 0)
           section.scale.set((x1 - x0) / 2 + SECTION_PAD, 1, half + SECTION_PAD)
-          section.material.opacity = 0.9 * planeFade
+          section.material.opacity = 1.0 * planeFade
         }
       }
     }
