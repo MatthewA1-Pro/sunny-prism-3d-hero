@@ -193,6 +193,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   const sectionFillRefs = useRef([])
   const baseFaceRef = useRef(null)
   const shellEdgeRef = useRef(null)
+  const sectionRingRef = useRef(null)
 
   const cutRef = useRef(null)
   const cutEdgeRef = useRef(null)
@@ -347,6 +348,20 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       }
     }
 
+    // The section's own outline while the solid is whole: the slices partition
+    // it, so the union of their sections is simply the square section at this
+    // height — one clean rectangle, as the diagrams draw it.
+    const sectionRing = sectionRingRef.current
+    if (sectionRing) {
+      const whole = planeFade * (1 - easeInOutSine(s.explode))
+      sectionRing.visible = whole > 0.004 && half > 0.002
+      if (sectionRing.visible) {
+        sectionRing.position.set(0, scanY, 0)
+        sectionRing.scale.set(half + SECTION_PAD, 1, half + SECTION_PAD)
+        sectionRing.material.opacity = 0.85 * whole
+      }
+    }
+
     // The uncut solid's own edges, drawn while the shell is glass. They stop
     // as the pieces start to move, when each slice's own seams take over.
     const shellEdge = shellEdgeRef.current
@@ -394,11 +409,15 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         const visible = planeFade > 0.004 && x1 - x0 > 0.002
 
         if (section) {
-          section.visible = visible
-          if (visible) {
+          // Each piece only outlines its own part of the section once the
+          // pieces have actually separated. While the solid is whole the
+          // section is one face, and is outlined once, below.
+          const perPiece = 0.9 * planeFade * easeInOutSine(s.explode)
+          section.visible = visible && perPiece > 0.004
+          if (section.visible) {
             section.position.set((x0 + x1) / 2, scanY, 0)
             section.scale.set((x1 - x0) / 2 + SECTION_PAD, 1, half + SECTION_PAD)
-            section.material.opacity = 0.9 * planeFade
+            section.material.opacity = perPiece
           }
         }
 
@@ -478,6 +497,23 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
   return (
     <group ref={groupRef}>
+      {/* The whole section's outline while the solid is still one piece. */}
+      <lineLoop
+        ref={sectionRingRef}
+        geometry={sectionOutline}
+        renderOrder={12}
+        visible={false}
+        frustumCulled={false}
+      >
+        <lineBasicMaterial
+          color={COLOR_SECTION}
+          transparent
+          opacity={0}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </lineLoop>
+
       {/* The uncut solid's edges, drawn while the shell is glass. */}
       <lineSegments
         ref={shellEdgeRef}
