@@ -7,10 +7,10 @@ import PrismObject from './PrismObject'
 import AmbientField from './AmbientField'
 import GroundGrid from './GroundGrid'
 import ShadowBands from './ShadowBands'
-import SectionFill from './SectionFill'
 import {
   CAMERA,
   SILHOUETTE_DROP,
+  cameraLens,
   cameraPitch,
   chapterUnits,
   damp,
@@ -57,6 +57,7 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     offsetX: 0,
     offsetY: 0,
     pitch: -1,
+    lensZ: -1,
     glow: '',
     pool: '',
     aura: '',
@@ -78,17 +79,26 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
       a.ready = true
     }
 
+    // The lens also flattens toward the diagrams' isometric drawing through
+    // chapters 1 and 2: the camera pulls back as the field of view narrows, so
+    // the prism keeps its size on screen while its perspective eases off.
     const pitch = cameraPitch(s)
-    if (Math.abs(pitch - a.pitch) > 0.0004) {
+    const lens = cameraLens(s)
+    if (Math.abs(pitch - a.pitch) > 0.0004 || Math.abs(lens.z - a.lensZ) > 0.002) {
       const cos = Math.cos(pitch)
       const sin = Math.sin(pitch)
       camera.position.set(
         0,
-        CAMERA.y * cos + CAMERA.z * sin,
-        CAMERA.z * cos - CAMERA.y * sin
+        CAMERA.y * cos + lens.z * sin,
+        lens.z * cos - CAMERA.y * sin
       )
       camera.lookAt(0, 0, 0)
+      camera.fov = lens.fov
+      camera.updateProjectionMatrix()
       a.pitch = pitch
+      a.lensZ = lens.z
+      // Force the view offset below to be rebuilt against the new projection.
+      a.offsetX = Number.NaN
     }
 
     const f = frameAt(s, c.layout, composition.explodeScale, frame.current)
@@ -185,7 +195,6 @@ function SceneContents({ controllerRef, reducedMotion, ...layerRefs }) {
         composition={composition}
         reducedMotion={reducedMotion}
       />
-      <SectionFill controllerRef={controllerRef} />
       <AmbientField controllerRef={controllerRef} reducedMotion={reducedMotion} />
     </>
   )

@@ -33,7 +33,11 @@ function buildLineGeometry() {
   const geo = new THREE.BufferGeometry()
   geo.setAttribute(
     'position',
-    new THREE.BufferAttribute(new Float32Array(2 * 3), 3)
+    new THREE.BufferAttribute(
+      // Starts at the centre line; the frame loop moves it to the ledge.
+      new Float32Array([VERT_A.x, VERT_A.y, VERT_A.z, VERT_B.x, VERT_B.y, VERT_B.z]),
+      3
+    )
   )
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 4)
   return geo
@@ -43,17 +47,6 @@ export default function CentreLine({ controllerRef }) {
   const groupRef = useRef(null)
   const lineRef = useRef(null)
   const geometry = useMemo(() => buildLineGeometry(), [])
-
-  useEffect(() => {
-    const pos = geometry.attributes.position
-    pos.array[0] = VERT_A.x
-    pos.array[1] = VERT_A.y
-    pos.array[2] = VERT_A.z
-    pos.array[3] = VERT_B.x
-    pos.array[4] = VERT_B.y
-    pos.array[5] = VERT_B.z
-    pos.needsUpdate = true
-  }, [geometry])
 
   useEffect(() => () => geometry.dispose(), [geometry])
 
@@ -100,7 +93,9 @@ export default function CentreLine({ controllerRef }) {
     scratch.a.lerpVectors(VERT_A, LEDGE_A, toLedge)
     scratch.b.lerpVectors(VERT_B, LEDGE_B, toLedge)
 
-    const pos = geometry.attributes.position
+    // Through the line rather than the memoized geometry: React's compiler
+    // holds a value created in a hook immutable, and this writes every frame.
+    const pos = lineRef.current.geometry.attributes.position
     pos.array[0] = scratch.a.x
     pos.array[1] = scratch.a.y
     pos.array[2] = scratch.a.z

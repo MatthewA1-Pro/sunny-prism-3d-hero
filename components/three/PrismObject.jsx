@@ -6,6 +6,7 @@ import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
 import {
+  buildPyramid,
   buildSlices,
   buildSectionOutline,
   buildCutSweep,
@@ -23,7 +24,7 @@ import {
   sliceTilt,
   prismYaw,
   prismPitch,
-  prismRecede,
+  shellOpacity,  prismRecede,
   PRISM_SHAPE,
   easeInOutCubic,
   easeOutCubic,
@@ -40,6 +41,8 @@ const COLOR_FILL_EDGE = new THREE.Color('#E0D0FF')
 const COLOR_BASE = new THREE.Color('#3DCC6E')
 const RING_INFLATE = 1.012
 const SECTION_PAD = 0.012
+/* How brightly the shell's own edges are drawn while it is glass. */
+const EDGE_GLASS = 0.55
 const EDGE_IDLE = 0
 const EDGE_LIT = 0.5
 const EDGE_SETTLED = 0.65
@@ -122,6 +125,17 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   const cutGeo = useMemo(() => buildCutSweepGeometry(), [])
   const cutEdgeGeo = useMemo(() => buildCutSweepOutline(), [])
   const sliceEdges = useMemo(() => slices.map((s) => new THREE.EdgesGeometry(s.geometry, 15)), [slices])
+  // Edges of the WHOLE solid. While the shell is glass only the uncut
+  // pyramid's own edges are drawn, as the diagrams do; the per-slice seams stay
+  // dark until the cutting plane actually reaches them, which is what keeps the
+  // travelling section reading as one unbroken face.
+  const shellEdges = useMemo(() => {
+    const pyramid = buildPyramid()
+    const edges = new THREE.EdgesGeometry(pyramid, 15)
+    pyramid.dispose()
+    return edges
+  }, [])
+  const shellEdgeRef = useRef(null)
 
   const fillPlaneGeo = useMemo(() => {
     const g = new THREE.PlaneGeometry(2, 2)
@@ -204,9 +218,13 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     const planeFade = sectionIn * (1 - easeInOutSine(range(units, 1.85, 2.2)))
     const edgeDim = lerp(1, EDGE_SETTLED, settleAmount)
 
-    // See-through silver so the purple rectangle reads through.
-    const sectionSeeThrough = easeInOutSine(s.section) * 0.7
-    const solidFade = lerp(1, 0.1, prismRecede(units)) * (1 - sectionSeeThrough)
+    // See-through silver so the purple rectangle reads through. One schedule
+    // for it (shellOpacity), which also keeps the shell glassy through the cut
+    // chapter, where the cutting plane has to be visible inside the solid too.
+    const shell = shellOpacity(units)
+    // Fully lit shell edges where the shell is at its most transparent.
+    const glassEdge = clamp01((0.97 - shell) / 0.5)
+    const solidFade = lerp(1, 0.1, prismRecede(units)) * shell
     const firstMesh = sliceMeshRefs.current[0]
     if (firstMesh) {
       const materials = firstMesh.material
@@ -215,6 +233,15 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
         materials[m].opacity = solidFade
         materials[m].depthWrite = solidFade > 0.995
       }
+    }
+
+    // The uncut solid's own edges, drawn while the shell is glass. They stop
+    // as the pieces start to move, when each slice's own seams take over.
+    const shellEdge = shellEdgeRef.current
+    if (shellEdge) {
+      const drawn = glassEdge * (1 - easeInOutSine(range(units, 2.2, 2.6)))
+      shellEdge.visible = drawn > 0.004
+      if (shellEdge.visible) shellEdge.material.opacity = EDGE_GLASS * drawn
     }
 
     // Filled section plane + outline + green base
@@ -231,7 +258,10 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       const show = planeFade > 0.01
       fillOutlineRef.current.visible = show
       if (show) {
-        const a = fillOutlineGeo.attributes.position.array
+        // Reached through the mesh rather than through the memoized geometry:
+        // React's compiler holds a value created in a hook immutable, and the
+        // frame loop has to write these corners every frame.
+        const a = fillOutlineRef.current.geometry.attributes.position.array
         const corners = [
           [-half, scanY, -half],
           [half, scanY, -half],
@@ -244,7 +274,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
           a[i * 3 + 1] = corners[i][1]
           a[i * 3 + 2] = corners[i][2]
         }
-        fillOutlineGeo.attributes.position.needsUpdate = true
+        fillOutlineRef.current.geometry.attributes.position.needsUpdate = true
         fillOutlineRef.current.material.opacity = 1.0 * planeFade
       }
     }
@@ -329,6 +359,23 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
   return (
     <group ref={groupRef}>
+      {/* The uncut solid's edges, drawn while the shell is glass. */}
+      <lineSegments
+        ref={shellEdgeRef}
+        geometry={shellEdges}
+        renderOrder={10}
+        visible={false}
+        frustumCulled={false}
+      >
+        <lineBasicMaterial
+          color="#E4DEFF"
+          transparent
+          opacity={0}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </lineSegments>
+
       {slices.map((slice, i) => (
         <group key={i} ref={(el) => { sliceRefs.current[i] = el }}>
           <mesh
