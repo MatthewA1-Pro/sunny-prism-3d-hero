@@ -6,7 +6,9 @@ import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
 import {
+  buildPyramid,
   buildSlices,
+  buildSectionFill,
   buildSectionOutline,
   buildCutSweep,
   buildCutSweepGeometry,
@@ -24,6 +26,7 @@ import {
   prismYaw,
   prismPitch,
   prismRecede,
+  shellOpacity,
   PRISM_SHAPE,
   easeInOutCubic,
   easeOutCubic,
@@ -33,13 +36,13 @@ import {
   range,
 } from '@/lib/timeline'
 
-/* Cross-section colours, carried over from the deployed revision so the
- * palette stays continuous with what the buyer has already approved.
- * They map onto the planes in shapes.pptx `image2.gif`:
- *   rising plane -> the purple horizontal section
- *   cut sweep    -> the vertical/diagonal section
+/* Cross-section colours, taken from the diagram language in `shapes.pptx`:
+ * purple for a cut through the volume, green for the base face. `image2.gif`
+ * fills the travelling section purple and lights the base green while it runs,
+ * and the deck uses the same two colours throughout.
  */
-const COLOR_SECTION = new THREE.Color('#40D0FF')
+const COLOR_SECTION = new THREE.Color('#9B7BFF')
+const COLOR_BASE = new THREE.Color('#3FD69A')
 const COLOR_CUT = new THREE.Color('#FF40B0')
 
 /*
@@ -57,6 +60,8 @@ const SECTION_PAD = 0.012
 /* Seam line opacity: hidden on the closed hero, lit once the cutting plane has
  * passed through that slice, softened a little in the settled composition. */
 const EDGE_IDLE = 0
+/* How brightly the shell's own edges are drawn while it is glass. */
+const EDGE_GLASS = 0.55
 const EDGE_LIT = 0.5
 const EDGE_SETTLED = 0.65
 
@@ -185,6 +190,9 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   const sliceMeshRefs = useRef([])
   const edgeMaterialRefs = useRef([])
   const sectionRefs = useRef([])
+  const sectionFillRefs = useRef([])
+  const baseFaceRef = useRef(null)
+  const shellEdgeRef = useRef(null)
 
   const cutRef = useRef(null)
   const cutEdgeRef = useRef(null)
@@ -192,6 +200,16 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
   // ── Geometry (built once) ─────────────────────────────────────────────────
   const slices = useMemo(() => buildSlices(), [])
   const sectionOutline = useMemo(() => buildSectionOutline(), [])
+  const sectionFill = useMemo(() => buildSectionFill(), [])
+  // Edges of the WHOLE solid: while the shell is glass only its silhouette and
+  // the edges of the uncut pyramid are drawn, as the diagrams do. The per-slice
+  // seams stay dark until the cutting plane actually passes through them.
+  const shellEdges = useMemo(() => {
+    const pyramid = buildPyramid()
+    const edges = new THREE.EdgesGeometry(pyramid, 15)
+    pyramid.dispose()
+    return edges
+  }, [])
   const cutSweep = useMemo(() => buildCutSweep(), [])
   const cutGeo = useMemo(() => buildCutSweepGeometry(), [])
   const cutEdgeGeo = useMemo(() => buildCutSweepOutline(), [])
@@ -214,10 +232,12 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       slices.forEach((s) => s.geometry.dispose())
       sliceEdges.forEach((e) => e.dispose())
       sectionOutline.dispose()
+      sectionFill.dispose()
+      shellEdges.dispose()
       cutGeo.dispose()
       cutEdgeGeo.dispose()
     }
-  }, [slices, sliceEdges, sectionOutline, cutGeo, cutEdgeGeo])
+  }, [slices, sliceEdges, sectionOutline, sectionFill, shellEdges, cutGeo, cutEdgeGeo])
 
   // ── Preallocated scratch — nothing is constructed inside useFrame ─────────
   const scratch = useMemo(() => ({ offset: new THREE.Vector3() }), [])
@@ -309,15 +329,40 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
     // Every slice draws with the same two materials, so slice 0's mesh reaches
     // them; they are touched through the mesh rather than through the memoized
     // array, which the React compiler holds immutable.
-    const solidFade = lerp(1, 0.1, prismRecede(units))
+    // The shell also thins out for the diagram chapters, so the travelling
+    // section can be seen inside it (the buyer's crystal, not a matte block).
+    const shell = shellOpacity(units)
+    // Fully lit edges where the shell is at its most transparent.
+    const glassEdge = clamp01((0.97 - shell) / 0.5)
+    const solidFade = lerp(1, 0.1, prismRecede(units)) * shell
     const firstMesh = sliceMeshRefs.current[0]
     if (firstMesh) {
       const materials = firstMesh.material
       for (let m = 0; m < materials.length; m++) {
         materials[m].transparent = solidFade < 0.995
         materials[m].opacity = solidFade
-        materials[m].depthWrite = solidFade > 0.995
+        // Once the shell is glass it must stop writing depth, or it hides the
+        // section, the far edges and the dashed-looking back seams behind it.
+        materials[m].depthWrite = solidFade > 0.88
       }
+    }
+
+    // The uncut solid's own edges, drawn while the shell is glass. They stop
+    // as the pieces start to move, when each slice's own seams take over.
+    const shellEdge = shellEdgeRef.current
+    if (shellEdge) {
+      const drawn = glassEdge * (1 - easeInOutSine(range(units, 2.2, 2.6)))
+      shellEdge.visible = drawn > 0.004
+      if (shellEdge.visible) shellEdge.material.opacity = EDGE_GLASS * drawn
+    }
+
+    // Green base face, lit while the section runs — the deck's colour language
+    // (`image2.gif` lights the base as the purple section travels).
+    const baseFace = baseFaceRef.current
+    if (baseFace) {
+      const lit = planeFade * (1 - easeInOutSine(s.explode))
+      baseFace.visible = lit > 0.004
+      if (baseFace.visible) baseFace.material.opacity = 0.5 * lit
     }
 
     for (let i = 0; i < slices.length; i++) {
@@ -334,20 +379,38 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
       const edgeMaterial = edgeMaterialRefs.current[i]
       if (edgeMaterial) {
         const lit = clamp01((K_MAX - sweepK) / (K_MAX - slice.kLow))
+        // While the shell is glass, its edges are drawn — that line work is
+        // what makes the diagrams read as a crystal rather than a smoky block,
+        // and it does not depend on the shell's own opacity.
         edgeMaterial.opacity =
           lerp(EDGE_IDLE, EDGE_LIT, easeOutCubic(lit)) * edgeDim * solidFade
       }
 
       const section = sectionRefs.current[i]
-      if (section) {
+      const sectionFillMesh = sectionFillRefs.current[i]
+      if (section || sectionFillMesh) {
         const x0 = Math.max(-half, (slice.kLow - scanY) / 2)
         const x1 = Math.min(half, (slice.kHigh - scanY) / 2)
         const visible = planeFade > 0.004 && x1 - x0 > 0.002
-        section.visible = visible
-        if (visible) {
-          section.position.set((x0 + x1) / 2, scanY, 0)
-          section.scale.set((x1 - x0) / 2 + SECTION_PAD, 1, half + SECTION_PAD)
-          section.material.opacity = 0.9 * planeFade
+
+        if (section) {
+          section.visible = visible
+          if (visible) {
+            section.position.set((x0 + x1) / 2, scanY, 0)
+            section.scale.set((x1 - x0) / 2 + SECTION_PAD, 1, half + SECTION_PAD)
+            section.material.opacity = 0.9 * planeFade
+          }
+        }
+
+        // The filled face is what actually reads as a cross-section travelling
+        // down the solid: an outline alone disappears against the shell.
+        if (sectionFillMesh) {
+          sectionFillMesh.visible = visible
+          if (visible) {
+            sectionFillMesh.position.set((x0 + x1) / 2, scanY, 0)
+            sectionFillMesh.scale.set((x1 - x0) / 2, 1, half)
+            sectionFillMesh.material.opacity = 0.62 * planeFade
+          }
         }
       }
     }
@@ -415,6 +478,42 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
 
   return (
     <group ref={groupRef}>
+      {/* The uncut solid's edges, drawn while the shell is glass. */}
+      <lineSegments
+        ref={shellEdgeRef}
+        geometry={shellEdges}
+        renderOrder={10}
+        visible={false}
+        frustumCulled={false}
+      >
+        <lineBasicMaterial
+          color="#E4DEFF"
+          transparent
+          opacity={0}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </lineSegments>
+
+      {/* Green base face, as the deck draws it while the section travels. */}
+      <mesh
+        ref={baseFaceRef}
+        geometry={sectionFill}
+        position={[0, -1.004, 0]}
+        renderOrder={3}
+        visible={false}
+        frustumCulled={false}
+      >
+        <meshBasicMaterial
+          color={COLOR_BASE}
+          transparent
+          opacity={0}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
       {/* ── Structural slices: one solid object, cut, never cross-faded ── */}
       {slices.map((slice, i) => (
         <group
@@ -429,7 +528,7 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
             }}
             geometry={slice.geometry}
             material={prismMaterials}
-            renderOrder={0}
+            renderOrder={8}
           />
           <lineSegments geometry={sliceEdges[i]} renderOrder={1}>
             <lineBasicMaterial
@@ -444,7 +543,28 @@ export default function PrismObject({ controllerRef, composition, reducedMotion 
             />
           </lineSegments>
 
-          {/* This piece's slice of the rising horizontal section. */}
+          {/* This piece's slice of the travelling section, filled. Drawn
+              before the shell so the glass blends over it. */}
+          <mesh
+            ref={(el) => {
+              sectionFillRefs.current[i] = el
+            }}
+            geometry={sectionFill}
+            renderOrder={4}
+            visible={false}
+            frustumCulled={false}
+          >
+            <meshBasicMaterial
+              color={COLOR_SECTION}
+              transparent
+              opacity={0}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </mesh>
+
+          {/* ...and its outline. */}
           <lineLoop
             ref={(el) => {
               sectionRefs.current[i] = el

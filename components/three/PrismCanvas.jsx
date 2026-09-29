@@ -10,6 +10,7 @@ import ShadowBands from './ShadowBands'
 import {
   CAMERA,
   SILHOUETTE_DROP,
+  cameraLens,
   cameraPitch,
   chapterUnits,
   damp,
@@ -76,6 +77,7 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     offsetX: 0,
     offsetY: 0,
     pitch: -1,
+    lensZ: -1,
     glow: '',
     pool: '',
     aura: '',
@@ -103,17 +105,26 @@ function StageRig({ controllerRef, glowRef, poolRef, auraRef, composition, reduc
     // swings on an arc about the subject, so the prism stays the same size and
     // centred; the prism's own pitch keys take the change back out of the angle
     // it is seen at (see PITCH_KEYS).
+    // The lens also flattens toward the diagrams' isometric drawing through
+    // chapters 1 and 2: the camera pulls back as the field of view narrows, so
+    // the prism keeps its size on screen while its perspective eases off.
     const pitch = cameraPitch(s)
-    if (Math.abs(pitch - a.pitch) > 0.0004) {
+    const lens = cameraLens(s)
+    if (Math.abs(pitch - a.pitch) > 0.0004 || Math.abs(lens.z - a.lensZ) > 0.002) {
       const cos = Math.cos(pitch)
       const sin = Math.sin(pitch)
       camera.position.set(
         0,
-        CAMERA.y * cos + CAMERA.z * sin,
-        CAMERA.z * cos - CAMERA.y * sin
+        CAMERA.y * cos + lens.z * sin,
+        lens.z * cos - CAMERA.y * sin
       )
       camera.lookAt(0, 0, 0)
+      camera.fov = lens.fov
+      camera.updateProjectionMatrix()
       a.pitch = pitch
+      a.lensZ = lens.z
+      // The view offset is rebuilt below against the new projection.
+      a.offsetX = Number.NaN
     }
 
     const f = frameAt(s, c.layout, composition.explodeScale, frame.current)
